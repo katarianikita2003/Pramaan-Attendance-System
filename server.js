@@ -36,11 +36,12 @@ console.log('⚠️  ZKP running in simulation mode');
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/pramaan-attendance';
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: true,
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.static('public'));
-// app.use('/models', express.static('models'));
-// // Add this after your other middleware
 app.use('/models', express.static(path.join(__dirname, 'models')));
 app.use(helmet({
     contentSecurityPolicy: {
@@ -86,11 +87,6 @@ mongoose.connect(MONGODB_URI, {
     })
     .catch((err) => {
         console.error('❌ MongoDB connection error:', err.message);
-        console.log('\n📋 Please ensure MongoDB is running:');
-        console.log('- Windows: Run "mongod" or start MongoDB service');
-        console.log('- macOS: brew services start mongodb-community');
-        console.log('- Linux: sudo systemctl start mongod');
-        console.log('\nOr run: node setup-mongodb.js for automated setup');
     });
 
 // Schemas
@@ -393,7 +389,7 @@ class ZKPManager {
     }
 
     async generateProof(biometricData, storedCommitment, scholarId, locationData) {
-        if (!this.isInitialized) {
+        if (!this.isInitialized || global.ZKP_SIMULATION_MODE) {
             // Fallback to simulation
             return this.generateSimulatedProof(biometricData, storedCommitment, scholarId);
         }
@@ -720,6 +716,7 @@ app.post('/api/biometric/register/fingerprint/options', authenticateToken, async
                 authenticatorAttachment: 'platform',
                 userVerification: 'required'
             },
+            supportedAlgorithmIDs: [-7, -257], // ES256 and RS256
         });
 
         // Store challenge in session
@@ -809,8 +806,8 @@ app.post('/api/biometric/register/fingerprint/verify', authenticateToken, async 
 // Face Registration
 app.post('/api/biometric/register/face', authenticateToken, async (req, res) => {
     try {
-        const { faceDescriptor } = req.body;
-        const scholarId = req.body.scholarId || req.user.scholarId;
+        const { faceDescriptor, scholarId: bodyScholarId } = req.body;
+        const scholarId = bodyScholarId || req.user.scholarId;
 
         if (!faceDescriptor) {
             return res.status(400).json({ error: 'Face descriptor required' });
@@ -818,7 +815,7 @@ app.post('/api/biometric/register/face', authenticateToken, async (req, res) => 
 
         // Generate hash from face descriptor
         const biometricHash = await zkpManager.generateBiometricHash(faceDescriptor, 'face');
-        const did = zkpManager.generateDID(req.user.scholarId, biometricHash.commitment);
+        const did = zkpManager.generateDID(scholarId, biometricHash.commitment);
 
         // Encrypt face descriptor
         const encryptedBiometric = encryption.encrypt({
@@ -827,7 +824,7 @@ app.post('/api/biometric/register/face', authenticateToken, async (req, res) => 
         });
 
         const biometricData = new BiometricData({
-            scholarId: req.user.scholarId,
+            scholarId: scholarId,
             type: 'face',
             encryptedData: JSON.stringify(encryptedBiometric),
             faceDescriptor: faceDescriptor, // Store encrypted
@@ -841,7 +838,7 @@ app.post('/api/biometric/register/face', authenticateToken, async (req, res) => 
 
         // Update scholar
         await Scholar.findOneAndUpdate(
-            { scholarId: req.user.scholarId },
+            { scholarId: scholarId },
             {
                 biometricType: 'face',
                 biometricCommitment: biometricHash.commitment,
@@ -957,70 +954,90 @@ app.post('/api/biometric/auth/fingerprint/verify', async (req, res) => {
 });
 
 // Scholar Registration with Biometric Support
-app.post('/api/scholar/login', async (req, res) => {
+app.post('/api/scholar/register', async (req, res) => {
     try {
-        const { scholarId, biometricData, biometricType } = req.body;
+        const { scholarId, name, email, department, supervisor, biometricData, biometricType } = req.body;
 
-        const scholar = await Scholar.findOne({ scholarId });
-        if (!scholar) {
-            return res.status(404).json({ error: 'Scholar not found' });
+        // Check if scholar already exists
+        const existing = await Scholar.findOne({
+            $or: [{ scholarId }, { email }]
+        });
+        if (existing) {
+            return res.status(400).json({ error: 'Scholar already registered' });
         }
 
-        // Verify biometric
-        let verificationResult = false;
+        let biometricResult;
+        let biometricFeatures;
 
-        if (scholar.biometricType !== 'simulated' && biometricType === 'real') {
-            const decryptedTemplate = await decryptBiometricTemplate(
-                scholar.biometricTemplate,
-                scholarId
-            );
-            verificationResult = await biometricHandler.verifyBiometric(
-                scholarId,
-                decryptedTemplate,
-                biometricData
-            );
+        // Handle real biometric enrollment
+        if (biometricType === 'real' && biometricData.type) {
+            biometricResult = await biometricHandler.enrollBiometric(scholarId, biometricData);
+            if (!biometricResult.success) {
+                return res.status(400).json({ error: 'Biometric enrollment failed' });
+            }
+            biometricFeatures = biometricResult.template;
         } else {
-            // Simulated verification
-            verificationResult = true;
+            // Simulated enrollment
+            biometricFeatures = biometricData;
+            biometricResult = {
+                template: 'simulated',
+                type: 'simulated'
+            };
         }
 
-        if (!verificationResult) {
-            return res.status(401).json({ error: 'Biometric verification failed' });
-        }
+        // Generate biometric commitment and DID
+        const biometricHash = await zkpManager.generateBiometricHash(biometricFeatures, biometricResult.type);
+        const did = zkpManager.generateDID(scholarId, biometricHash.commitment);
 
-        // Generate ZK proof
-        const proof = await zkpManager.generateProof(
-            biometricData.signature || biometricData.descriptor || biometricData.data || biometricData,
-            scholar.biometricCommitment,
+        // Generate ZKP public key for the scholar
+        const zkpPublicKey = crypto.randomBytes(32).toString('hex');
+
+        // Encrypt biometric template before storage
+        const encryptedTemplate = biometricResult.template ?
+            await encryptBiometricTemplate(biometricResult.template, scholarId) :
+            'simulated';
+
+        // Create scholar record
+        const scholar = new Scholar({
             scholarId,
-            { type: 'login', timestamp: Date.now() }
+            name,
+            email,
+            department,
+            supervisor,
+            biometricCommitment: biometricHash.commitment,
+            biometricSalt: biometricHash.salt,
+            biometricTemplate: encryptedTemplate,
+            biometricType: biometricResult.type || 'simulated',
+            webAuthnCredentials: [],
+            did,
+            zkpPublicKey
+        });
+
+        await scholar.save();
+
+        // Generate initial ZK proof for registration
+        const proof = await zkpManager.generateProof(
+            biometricFeatures,
+            biometricHash.commitment,
+            scholarId,
+            { type: 'registration', timestamp: Date.now() }
         );
 
-        const isValid = await zkpManager.verifyProof(proof, proof.publicSignals);
-        if (!isValid) {
-            return res.status(401).json({ error: 'ZKP verification failed' });
-        }
-
-        const token = jwt.sign(
-            { id: scholar._id, scholarId: scholar.scholarId, role: 'scholar' },
-            JWT_SECRET,
-            { expiresIn: '12h' }
-        );
+        // Store the proof
+        await zkpManager.storeProof(scholarId, proof, proof.publicSignals, 'registration');
 
         res.json({
-            token,
-            scholar: {
-                scholarId: scholar.scholarId,
-                name: scholar.name,
-                department: scholar.department,
-                did: scholar.did
-            },
-            biometricType: scholar.biometricType,
-            zkpType: proof.isRealProof ? 'Real ZKP' : 'Simulated'
+            message: 'Scholar registered successfully',
+            scholarId,
+            did,
+            zkpPublicKey,
+            biometricType: biometricResult.type,
+            isRealBiometric: biometricResult.type !== 'simulated',
+            isRealZKP: proof.isRealProof
         });
     } catch (error) {
-        console.error('Scholar login error:', error);
-        res.status(500).json({ error: error.message || 'Login failed' });
+        console.error('Registration error:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -1526,15 +1543,15 @@ app.get('/api/admin/zkp-status', authenticateToken, authenticateAdmin, async (re
 app.post('/api/scholar/login', async (req, res) => {
     try {
         const { scholarId, biometricData, biometricType } = req.body;
-
+        
         const scholar = await Scholar.findOne({ scholarId });
         if (!scholar) {
             return res.status(404).json({ error: 'Scholar not found' });
         }
-
+        
         // Verify biometric
         let verificationResult = false;
-
+        
         if (scholar.biometricType !== 'simulated' && biometricType === 'real') {
             const decryptedTemplate = await decryptBiometricTemplate(
                 scholar.biometricTemplate,
@@ -1549,30 +1566,30 @@ app.post('/api/scholar/login', async (req, res) => {
             // Simulated verification
             verificationResult = true;
         }
-
+        
         if (!verificationResult) {
             return res.status(401).json({ error: 'Biometric verification failed' });
         }
-
+        
         // Generate ZK proof
         const proof = await zkpManager.generateProof(
-            biometricData.signature || biometricData.data || biometricData,
+            biometricData.signature || biometricData.descriptor || biometricData.data || biometricData,
             scholar.biometricCommitment,
             scholarId,
             { type: 'login', timestamp: Date.now() }
         );
-
+        
         const isValid = await zkpManager.verifyProof(proof, proof.publicSignals);
         if (!isValid) {
             return res.status(401).json({ error: 'ZKP verification failed' });
         }
-
+        
         const token = jwt.sign(
             { id: scholar._id, scholarId: scholar.scholarId, role: 'scholar' },
             JWT_SECRET,
             { expiresIn: '12h' }
         );
-
+        
         res.json({
             token,
             scholar: {
@@ -1585,7 +1602,8 @@ app.post('/api/scholar/login', async (req, res) => {
             zkpType: proof.isRealProof ? 'Real ZKP' : 'Simulated'
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Scholar login error:', error);
+        res.status(500).json({ error: error.message || 'Login failed' });
     }
 });
 

@@ -774,23 +774,12 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 5px 25px rgba(0, 0, 0, 0.3);
-            display: none;
-            /* Hidden by default */
         }
 
         #face-video {
             display: block;
             border: 2px solid #667eea;
             border-radius: 10px;
-            width: 320px;
-            height: 240px;
-        }
-
-        #face-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            pointer-events: none;
         }
     </style>
 </head>
@@ -1227,13 +1216,6 @@
                         <input type="number" id="campusRadius" placeholder="500" value="500">
                     </div>
 
-                    <div class="form-group">
-                        <label>WiFi Access Points</label>
-                        <textarea id="wifiMACs" rows="4" placeholder="Enter MAC addresses (one per line)">AA:BB:CC:DD:EE:01
-AA:BB:CC:DD:EE:02
-AA:BB:CC:DD:EE:03</textarea>
-                    </div>
-
                     <button class="btn btn-primary" onclick="saveLocationSettings()">
                         <span>💾</span> Save Settings
                     </button>
@@ -1419,7 +1401,7 @@ AA:BB:CC:DD:EE:03</textarea>
         // BiometricHandler class for real biometric integration
         class BiometricHandler {
             constructor() {
-                this.API_URL = window.location.origin + '/api';
+                this.API_URL = 'http://localhost:5000/api';
                 this.isWebAuthnSupported = this.checkWebAuthnSupport();
                 this.isFaceAPILoaded = false;
                 this.registrationMode = false;
@@ -1429,109 +1411,6 @@ AA:BB:CC:DD:EE:03</textarea>
                 return window.PublicKeyCredential &&
                     navigator.credentials &&
                     navigator.credentials.create;
-            }
-
-            async registerFace() {
-                await this.loadFaceAPI();
-
-                // Get the scholarId from the form
-                const scholarId = document.getElementById('newScholarId').value;
-                if (!scholarId) {
-                    throw new Error('Scholar ID is required');
-                }
-
-                const video = document.getElementById('face-video');
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: 640,
-                        height: 480,
-                        facingMode: 'user'
-                    }
-                });
-
-                video.srcObject = stream;
-                currentStream = stream;
-
-                return new Promise((resolve, reject) => {
-                    video.onloadedmetadata = async () => {
-                        try {
-                            // Show video container
-                            document.getElementById('faceVideoContainer').style.display = 'block';
-
-                            // Add instruction text
-                            const container = document.getElementById('faceVideoContainer');
-                            if (!container.querySelector('.instructions')) {
-                                const instructions = document.createElement('div');
-                                instructions.className = 'instructions';
-                                instructions.innerHTML = '<p style="text-align: center; margin: 10px;">Position your face in the center of the frame</p>';
-                                container.appendChild(instructions);
-                            }
-
-                            // Wait for user to position face
-                            let detectionAttempts = 0;
-                            const maxAttempts = 10;
-                            let detections = null;
-
-                            while (!detections && detectionAttempts < maxAttempts) {
-                                detectionAttempts++;
-                                console.log(`Detection attempt ${detectionAttempts}/${maxAttempts}`);
-
-                                const options = new faceapi.TinyFaceDetectorOptions({
-                                    inputSize: 416,
-                                    scoreThreshold: 0.3
-                                });
-
-                                detections = await faceapi
-                                    .detectSingleFace(video, options)
-                                    .withFaceLandmarks()
-                                    .withFaceDescriptor();
-
-                                if (!detections) {
-                                    await new Promise(r => setTimeout(r, 500));
-                                }
-                            }
-
-                            if (!detections) {
-                                throw new Error('No face detected. Please ensure good lighting.');
-                            }
-
-                            console.log('Face detected with score:', detections.detection.score);
-
-                            // Convert descriptor to base64
-                            const descriptor = btoa(String.fromCharCode(...new Uint8Array(detections.descriptor.buffer)));
-
-                            // Stop video stream
-                            stream.getTracks().forEach(track => track.stop());
-                            document.getElementById('faceVideoContainer').style.display = 'none';
-
-                            // Register with server - INCLUDE scholarId!
-                            const response = await fetch(`${this.API_URL}/biometric/register/face`, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${authToken}`
-                                },
-                                body: JSON.stringify({
-                                    faceDescriptor: descriptor,
-                                    scholarId: scholarId // Add scholarId here
-                                })
-                            });
-
-                            const result = await response.json();
-
-                            if (!response.ok) {
-                                throw new Error(result.error || 'Registration failed');
-                            }
-
-                            resolve(result);
-
-                        } catch (error) {
-                            stream.getTracks().forEach(track => track.stop());
-                            document.getElementById('faceVideoContainer').style.display = 'none';
-                            reject(error);
-                        }
-                    };
-                });
             }
 
             async loadFaceAPI() {
@@ -1555,13 +1434,13 @@ AA:BB:CC:DD:EE:03</textarea>
                     for (const MODEL_URL of modelPaths) {
                         try {
                             console.log(`Trying to load models from: ${MODEL_URL}`);
-
+                            
                             await Promise.all([
                                 faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
                                 faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
                                 faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
                             ]);
-
+                            
                             console.log(`Models loaded successfully from: ${MODEL_URL}`);
                             loaded = true;
                             break;
@@ -1576,13 +1455,14 @@ AA:BB:CC:DD:EE:03</textarea>
 
                     this.isFaceAPILoaded = true;
                     faceApiLoaded = true;
-
+                    
                 } catch (error) {
                     console.error('Failed to load face-api models:', error);
                     throw new Error('Face recognition models not available.');
                 }
             }
 
+            // For registration - this should NOT require an existing scholar
             async captureFingerprint() {
                 if (!this.isWebAuthnSupported) {
                     throw new Error('WebAuthn not supported on this device');
@@ -1604,7 +1484,10 @@ AA:BB:CC:DD:EE:03</textarea>
                             name: "temp@pramaan.com",
                             displayName: "Temporary User",
                         },
-                        pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+                        pubKeyCredParams: [
+                            {alg: -7, type: "public-key"}, // ES256
+                            {alg: -257, type: "public-key"} // RS256
+                        ],
                         authenticatorSelection: {
                             authenticatorAttachment: "platform",
                             userVerification: "required"
@@ -1630,13 +1513,14 @@ AA:BB:CC:DD:EE:03</textarea>
                 }
             }
 
+            // For registration - capture face without server interaction
             async captureFace() {
                 await this.loadFaceAPI();
 
                 const video = document.getElementById('face-video');
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: 640,
+                    video: { 
+                        width: 640, 
                         height: 480,
                         facingMode: 'user'
                     }
@@ -1706,82 +1590,7 @@ AA:BB:CC:DD:EE:03</textarea>
                 });
             }
 
-            // async registerFingerprint() {
-            //     if (!this.isWebAuthnSupported) {
-            //         throw new Error('WebAuthn not supported on this device');
-            //     }
-
-            //     try {
-            //         // Get the scholarId from the form
-            //         const scholarId = document.getElementById('newScholarId').value;
-            //         if (!scholarId) {
-            //             throw new Error('Scholar ID is required');
-            //         }
-
-            //         // Get registration options from server
-            //         const optionsResponse = await fetch(`${this.API_URL}/biometric/register/fingerprint/options`, {
-            //             method: 'POST',
-            //             headers: {
-            //                 'Content-Type': 'application/json',
-            //                 'Authorization': `Bearer ${authToken}`
-            //             },
-            //             body: JSON.stringify({ scholarId }) // Pass scholarId
-            //         });
-
-            //         if (!optionsResponse.ok) {
-            //             const error = await optionsResponse.json();
-            //             throw new Error(error.error || 'Failed to get registration options');
-            //         }
-
-            //         const options = await optionsResponse.json();
-
-            //         // Convert challenge and user ID
-            //         options.challenge = Uint8Array.from(options.challenge, c => c.charCodeAt(0));
-            //         options.user.id = Uint8Array.from(options.user.id, c => c.charCodeAt(0));
-
-            //         // Create credential
-            //         const credential = await navigator.credentials.create({
-            //             publicKey: options
-            //         });
-
-            //         // Prepare credential for server
-            //         const credentialForServer = {
-            //             id: credential.id,
-            //             rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
-            //             type: credential.type,
-            //             response: {
-            //                 clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),
-            //                 attestationObject: btoa(String.fromCharCode(...new Uint8Array(credential.response.attestationObject)))
-            //             }
-            //         };
-
-            //         // Verify with server
-            //         const verifyResponse = await fetch(`${this.API_URL}/biometric/register/fingerprint/verify`, {
-            //             method: 'POST',
-            //             headers: {
-            //                 'Content-Type': 'application/json',
-            //                 'Authorization': `Bearer ${authToken}`
-            //             },
-            //             body: JSON.stringify({
-            //                 credential: credentialForServer,
-            //                 scholarId // Include scholarId
-            //             })
-            //         });
-
-            //         const result = await verifyResponse.json();
-
-            //         if (!verifyResponse.ok) {
-            //             throw new Error(result.error || 'Registration failed');
-            //         }
-
-            //         return result;
-
-            //     } catch (error) {
-            //         console.error('Fingerprint registration error:', error);
-            //         throw error;
-            //     }
-            // }
-
+            // The old methods for authentication (keep these for login)
             async authenticateFingerprint(scholarId) {
                 if (!this.isWebAuthnSupported) {
                     throw new Error('WebAuthn not supported on this device');
@@ -1873,23 +1682,46 @@ AA:BB:CC:DD:EE:03</textarea>
                             // Show video container
                             document.getElementById('faceVideoContainer').style.display = 'block';
 
-                            // Wait for user to position face
-                            await new Promise(r => setTimeout(r, 2000));
+                            // Give user time to position face
+                            showNotification('Position your face in the center of the frame', 'info');
+                            await new Promise(r => setTimeout(r, 3000)); // Wait 3 seconds
 
-                            // Detect face
-                            const detections = await faceapi
-                                .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
-                                .withFaceLandmarks()
-                                .withFaceDescriptor();
+                            let detectionAttempts = 0;
+                            const maxAttempts = 20; // Increased from 10
+                            let detections = null;
 
-                            if (!detections) {
-                                throw new Error('No face detected');
+                            while (!detections && detectionAttempts < maxAttempts) {
+                                detectionAttempts++;
+                                console.log(`Detection attempt ${detectionAttempts}/${maxAttempts}`);
+
+                                // Try with different thresholds
+                                const thresholds = [0.5, 0.4, 0.3, 0.2, 0.1];
+
+                                for (const threshold of thresholds) {
+                                    const options = new faceapi.TinyFaceDetectorOptions({
+                                        inputSize: 416,
+                                        scoreThreshold: threshold
+                                    });
+
+                                    detections = await faceapi
+                                        .detectSingleFace(video, options)
+                                        .withFaceLandmarks()
+                                        .withFaceDescriptor();
+
+                                    if (detections) break;
+                                }
+
+                                if (!detections) {
+                                    await new Promise(r => setTimeout(r, 500));
+                                }
                             }
 
-                            // Convert descriptor to base64
+                            if (!detections) {
+                                throw new Error('No face detected. Please ensure good lighting and face is clearly visible.');
+                            }
+
                             const descriptor = btoa(String.fromCharCode(...new Uint8Array(detections.descriptor.buffer)));
 
-                            // Stop video stream
                             stream.getTracks().forEach(track => track.stop());
                             document.getElementById('faceVideoContainer').style.display = 'none';
 
@@ -1910,8 +1742,8 @@ AA:BB:CC:DD:EE:03</textarea>
         const biometricHandler = new BiometricHandler();
 
         // Capture biometric function
-
         async function captureBiometric(type) {
+            // Get selected biometric type
             let selectedType = 'simulated';
             if (type === 'login') {
                 selectedType = document.querySelector('input[name="loginBiometricType"]:checked').value;
@@ -1931,6 +1763,7 @@ AA:BB:CC:DD:EE:03</textarea>
 
             if (!scanner) return;
 
+            // For attendance, check if location is verified
             if (type === 'attendance' && !locationVerified) {
                 showNotification('Please verify your location first', 'error');
                 return;
@@ -1940,35 +1773,38 @@ AA:BB:CC:DD:EE:03</textarea>
                 if (selectedType === 'fingerprint') {
                     scanner.classList.add('scanning');
                     scanner.innerHTML = `
-                <div class="loading"></div>
-                <p>Touch your fingerprint sensor...</p>
-                <small>Using device biometric</small>
-            `;
+                        <div class="loading"></div>
+                        <p>Touch your fingerprint sensor...</p>
+                        <small>Using device biometric</small>
+                    `;
 
                     if (type === 'register') {
                         // For registration, just capture the biometric
                         const biometricData = await biometricHandler.captureFingerprint();
                         capturedBiometric = biometricData;
+                    } else if (type === 'login') {
+                        // For login, we'll do authentication when form is submitted
+                        capturedBiometric = { type: 'webauthn', ready: true };
                     } else {
-                        // For login/attendance, use authentication
+                        // For attendance
                         capturedBiometric = { type: 'webauthn', ready: true };
                     }
 
                     scanner.classList.remove('scanning');
                     scanner.classList.add('success');
                     scanner.innerHTML = `
-                <div class="scanner-icon">✅</div>
-                <p>Fingerprint ${type === 'register' ? 'Captured' : 'Ready'}</p>
-                <small>Biometric ${type === 'register' ? 'captured' : 'configured'}</small>
-            `;
+                        <div class="scanner-icon">✅</div>
+                        <p>Fingerprint ${type === 'register' ? 'Captured' : 'Ready'}</p>
+                        <small>Biometric ${type === 'register' ? 'captured' : 'configured'}</small>
+                    `;
 
                 } else if (selectedType === 'face') {
                     scanner.classList.add('scanning');
                     scanner.innerHTML = `
-                <div class="loading"></div>
-                <p>Initializing camera...</p>
-                <small>Position your face in the frame</small>
-            `;
+                        <div class="loading"></div>
+                        <p>Initializing camera...</p>
+                        <small>Position your face in the frame</small>
+                    `;
 
                     if (type === 'register') {
                         // For registration, just capture the face
@@ -1983,19 +1819,19 @@ AA:BB:CC:DD:EE:03</textarea>
                     scanner.classList.remove('scanning');
                     scanner.classList.add('success');
                     scanner.innerHTML = `
-                <div class="scanner-icon">✅</div>
-                <p>Face Captured</p>
-                <small>Biometric ready</small>
-            `;
+                        <div class="scanner-icon">✅</div>
+                        <p>Face Captured</p>
+                        <small>Biometric ready</small>
+                    `;
 
                 } else {
                     // Simulated biometric
                     scanner.classList.add('scanning');
                     scanner.innerHTML = `
-                <div class="loading"></div>
-                <p>Scanning biometric...</p>
-                <small>Processing with ZKP</small>
-            `;
+                        <div class="loading"></div>
+                        <p>Scanning biometric...</p>
+                        <small>Processing with ZKP</small>
+                    `;
 
                     await new Promise(resolve => setTimeout(resolve, 2000));
 
@@ -2004,10 +1840,10 @@ AA:BB:CC:DD:EE:03</textarea>
                     scanner.classList.remove('scanning');
                     scanner.classList.add('success');
                     scanner.innerHTML = `
-                <div class="scanner-icon">✅</div>
-                <p>Biometric Captured</p>
-                <small>ZKP Generated</small>
-            `;
+                        <div class="scanner-icon">✅</div>
+                        <p>Biometric Captured</p>
+                        <small>ZKP Generated</small>
+                    `;
                 }
 
                 if (type === 'attendance') {
@@ -2023,10 +1859,10 @@ AA:BB:CC:DD:EE:03</textarea>
                 setTimeout(() => {
                     scanner.classList.remove('success');
                     scanner.innerHTML = `
-                <div class="scanner-icon">${selectedType === 'fingerprint' ? '👆' : selectedType === 'face' ? '👤' : '🔐'}</div>
-                <p>Click to ${type === 'register' ? 'Capture' : 'Scan'} Biometric</p>
-                <small>${type === 'register' ? 'This will be converted to ZKP' : 'Verify with biometric'}</small>
-            `;
+                        <div class="scanner-icon">${selectedType === 'fingerprint' ? '👆' : selectedType === 'face' ? '👤' : '🔐'}</div>
+                        <p>Click to ${type === 'register' ? 'Capture' : 'Scan'} Biometric</p>
+                        <small>${type === 'register' ? 'This will be converted to ZKP' : 'Verify with biometric'}</small>
+                    `;
                 }, 3000);
 
             } catch (error) {
@@ -2034,19 +1870,19 @@ AA:BB:CC:DD:EE:03</textarea>
                 scanner.classList.remove('scanning');
                 scanner.classList.remove('success');
                 scanner.innerHTML = `
-            <div class="scanner-icon">❌</div>
-            <p>Capture Failed</p>
-            <small>${error.message}</small>
-        `;
+                    <div class="scanner-icon">❌</div>
+                    <p>Capture Failed</p>
+                    <small>${error.message}</small>
+                `;
 
                 showNotification(error.message || 'Biometric capture failed', 'error');
 
                 setTimeout(() => {
                     scanner.innerHTML = `
-                <div class="scanner-icon">${selectedType === 'fingerprint' ? '👆' : selectedType === 'face' ? '👤' : '🔐'}</div>
-                <p>Click to ${type === 'register' ? 'Capture' : 'Scan'} Biometric</p>
-                <small>Try again</small>
-            `;
+                        <div class="scanner-icon">${selectedType === 'fingerprint' ? '👆' : selectedType === 'face' ? '👤' : '🔐'}</div>
+                        <p>Click to ${type === 'register' ? 'Capture' : 'Scan'} Biometric</p>
+                        <small>Try again</small>
+                    `;
                 }, 3000);
             }
         }
@@ -2383,9 +2219,9 @@ AA:BB:CC:DD:EE:03</textarea>
             try {
                 const response = await fetch(`${API_URL}/scholar/register`, {
                     method: 'POST',
-                    headers: {
+                    headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${authToken}` // Make sure we have admin token
+                        'Authorization': `Bearer ${authToken}`
                     },
                     body: JSON.stringify(scholarData)
                 });
@@ -2399,14 +2235,14 @@ AA:BB:CC:DD:EE:03</textarea>
 
                     // Show success modal
                     showModal('Registration Successful', `
-                <div class="zkp-flow">
-                    <h4>Scholar registered with ZKP:</h4>
-                    <p><strong>Scholar ID:</strong> ${data.scholarId}</p>
-                    <p><strong>DID:</strong> ${data.did}</p>
-                    <p><strong>Biometric Type:</strong> ${data.biometricType}</p>
-                    <p style="margin-top: 20px;">The scholar can now use their biometric to mark attendance securely.</p>
-                </div>
-            `);
+                        <div class="zkp-flow">
+                            <h4>Scholar registered with ZKP:</h4>
+                            <p><strong>Scholar ID:</strong> ${data.scholarId}</p>
+                            <p><strong>DID:</strong> ${data.did}</p>
+                            <p><strong>Biometric Type:</strong> ${data.biometricType}</p>
+                            <p style="margin-top: 20px;">The scholar can now use their biometric to mark attendance securely.</p>
+                        </div>
+                    `);
                 } else {
                     showNotification(data.error || 'Registration failed', 'error');
                 }
@@ -2650,37 +2486,50 @@ AA:BB:CC:DD:EE:03</textarea>
         }
 
         // Save location settings
-        function saveLocationSettings() {
+        async function saveLocationSettings() {
             const lat = parseFloat(document.getElementById('campusLat').value);
             const lng = parseFloat(document.getElementById('campusLng').value);
             const radius = parseInt(document.getElementById('campusRadius').value);
-            const wifiMACs = document.getElementById('wifiMACs').value.split('\n').filter(mac => mac.trim());
 
-            // Update campus config
-            CAMPUS_CONFIG.center = { lat, lng };
-            CAMPUS_CONFIG.radius = radius;
+            try {
+                const response = await fetch(`${API_URL}/admin/campus-location`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        latitude: lat,
+                        longitude: lng,
+                        radius: radius
+                    })
+                });
 
-            // Save to localStorage
-            localStorage.setItem('campusConfig', JSON.stringify({
-                center: { lat, lng },
-                radius,
-                wifiMACs
-            }));
+                if (response.ok) {
+                    // Update local campus config
+                    CAMPUS_CONFIG.center = { lat, lng };
+                    CAMPUS_CONFIG.radius = radius;
 
-            showNotification('Location settings saved successfully', 'success');
+                    showNotification('Location settings saved successfully', 'success');
 
-            // Update map preview
-            const mapDiv = document.getElementById('campusMap');
-            mapDiv.innerHTML = `
-                <div style="background: #e0e0e0; height: 300px; display: flex; align-items: center; justify-content: center;">
-                    <div style="text-align: center;">
-                        <div style="font-size: 48px;">🗺️</div>
-                        <div>Campus Center: ${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
-                        <div>Radius: ${radius}m</div>
-                        <div style="margin-top: 10px;">WiFi MACs: ${wifiMACs.length} configured</div>
-                    </div>
-                </div>
-            `;
+                    // Update map preview
+                    const mapDiv = document.getElementById('campusMap');
+                    mapDiv.innerHTML = `
+                        <div style="background: #e0e0e0; height: 300px; display: flex; align-items: center; justify-content: center;">
+                            <div style="text-align: center;">
+                                <div style="font-size: 48px;">🗺️</div>
+                                <div>Campus Center: ${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+                                <div>Radius: ${radius}m</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    showNotification('Failed to save location settings', 'error');
+                }
+            } catch (error) {
+                console.error('Save location error:', error);
+                showNotification('Connection error', 'error');
+            }
         }
 
         // Use current location for campus settings
@@ -2901,26 +2750,42 @@ AA:BB:CC:DD:EE:03</textarea>
 
                 if (biometricType === 'fingerprint') {
                     // Use WebAuthn authentication
-                    const authResult = await biometricHandler.authenticateFingerprint(scholarId);
-                    authToken = authResult.token;
-                    currentUser = authResult.scholar;
-                    localStorage.setItem('authToken', authToken);
-                    localStorage.setItem('userRole', 'scholar');
+                    try {
+                        const authResult = await biometricHandler.authenticateFingerprint(scholarId);
+                        authToken = authResult.token;
+                        currentUser = authResult.scholar;
+                        localStorage.setItem('authToken', authToken);
+                        localStorage.setItem('userRole', 'scholar');
 
-                    document.getElementById('loginPage').style.display = 'none';
-                    document.getElementById('scholarDashboard').style.display = 'block';
-                    document.getElementById('scholarName').textContent = currentUser.name;
+                        document.getElementById('loginPage').style.display = 'none';
+                        document.getElementById('scholarDashboard').style.display = 'block';
+                        document.getElementById('scholarName').textContent = currentUser.name;
 
-                    showNotification('Login successful!', 'success');
-                    loadScholarDashboard();
+                        showNotification('Login successful!', 'success');
+                        loadScholarDashboard();
 
-                    // Start location verification after login
-                    setTimeout(() => {
-                        checkLocationPermissions();
-                    }, 1000);
-                    return;
+                        // Start location verification after login
+                        setTimeout(() => {
+                            checkLocationPermissions();
+                        }, 1000);
+                        return;
+                    } catch (error) {
+                        console.error('Fingerprint auth error:', error);
+                        showNotification(error.message || 'Fingerprint authentication failed', 'error');
+                        return;
+                    }
+                } else if (biometricType === 'face') {
+                    // For face authentication
+                    try {
+                        const faceData = await biometricHandler.authenticateFace();
+                        loginData.biometricData = faceData;
+                    } catch (error) {
+                        console.error('Face authentication error:', error);
+                        showNotification(error.message || 'Face authentication failed', 'error');
+                        return;
+                    }
                 } else {
-                    loginData.biometricData = capturedBiometric || { type: biometricType };
+                    loginData.biometricData = capturedBiometric || { type: biometricType, data: 'captured' };
                 }
 
                 const response = await fetch(`${API_URL}/scholar/login`, {
@@ -2941,7 +2806,7 @@ AA:BB:CC:DD:EE:03</textarea>
                     document.getElementById('scholarDashboard').style.display = 'block';
                     document.getElementById('scholarName').textContent = currentUser.name;
 
-                    showNotification('Login successful!', 'success');
+                    showNotification(`Login successful! (${data.biometricType}, ${data.zkpType})`, 'success');
                     loadScholarDashboard();
 
                     // Start location verification after login
