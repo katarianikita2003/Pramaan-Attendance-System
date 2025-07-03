@@ -1,52 +1,47 @@
 {
   "name": "pramaan-attendance-system",
-  "version": "2.0.0",
-  "description": "Zero-Knowledge Proof based attendance system for PhD scholars with real ZKP implementation",
+  "version": "1.0.0",
+  "description": "Zero-Knowledge Proof based attendance system for PhD scholars",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
     "setup": "node setup.js",
-    "setup-zkp": "node setup-zkp.js",
-    "test-zkp": "node test-zkp.js",
-    "test": "jest",
-    "build-circuits": "npm run setup-zkp",
-    "verify-setup": "node test-zkp.js"
+    "test": "jest"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "mongoose": "^7.5.0",
-    "cors": "^2.8.5",
+    "@simplewebauthn/browser": "^9.0.1",
+    "@simplewebauthn/server": "^9.0.3",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
-    "dotenv": "^16.3.1",
+    "circomlib": "^2.0.5",
+    "connect-mongo": "^5.1.0",
+    "cors": "^2.8.5",
     "crypto": "^1.0.1",
-    "snarkjs": "^0.7.0",
-    "circomlib": "^0.5.5",
-    "ffjavascript": "^0.2.62",
-    "web3": "^4.2.0"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.0",
+    "express-session": "^1.18.1",
+    "face-api.js": "^0.22.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^7.5.0",
+    "multer": "^2.0.0-rc.2",
+    "sharp": "^0.33.0",
+    "snarkjs": "^0.7.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1",
     "jest": "^29.7.0",
-    "@types/node": "^20.8.0"
+    "nodemon": "^3.0.1"
   },
   "keywords": [
     "zkp",
     "zero-knowledge-proof",
-    "snarkjs",
-    "circom",
-    "groth16",
     "attendance",
     "biometric",
     "blockchain",
-    "authentication",
-    "privacy-preserving"
+    "authentication"
   ],
-  "author": "Pramaan Team",
-  "license": "MIT",
-  "engines": {
-    "node": ">=16.0.0"
-  }
+  "author": "Your Name",
+  "license": "MIT"
 }

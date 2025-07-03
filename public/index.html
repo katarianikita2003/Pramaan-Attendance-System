@@ -1,9 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pramaan - ZKP Attendance System</title>
+
+    <!-- Load face-api.js for face recognition -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
     <style>
         * {
             margin: 0;
@@ -30,7 +35,7 @@
             background: white;
             padding: 40px;
             border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             width: 100%;
             max-width: 400px;
         }
@@ -82,8 +87,8 @@
 
         .sidebar-header {
             padding: 20px;
-            background: rgba(255,255,255,0.1);
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .sidebar-logo {
@@ -105,16 +110,16 @@
             display: flex;
             align-items: center;
             gap: 15px;
-            color: rgba(255,255,255,0.8);
+            color: rgba(255, 255, 255, 0.8);
         }
 
         .menu-item:hover {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
             color: white;
         }
 
         .menu-item.active {
-            background: rgba(102,126,234,0.2);
+            background: rgba(102, 126, 234, 0.2);
             color: #667eea;
             border-left: 3px solid #667eea;
         }
@@ -128,7 +133,7 @@
             background: white;
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
             margin-bottom: 30px;
             display: flex;
             justify-content: space-between;
@@ -170,7 +175,7 @@
             background: white;
             padding: 25px;
             border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
             position: relative;
             overflow: hidden;
         }
@@ -208,7 +213,7 @@
         .data-table {
             background: white;
             border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
             overflow: hidden;
         }
 
@@ -242,7 +247,8 @@
             border-collapse: collapse;
         }
 
-        th, td {
+        th,
+        td {
             padding: 15px;
             text-align: left;
             border-bottom: 1px solid #e0e0e0;
@@ -270,7 +276,9 @@
             color: #555;
         }
 
-        input, select, textarea {
+        input,
+        select,
+        textarea {
             width: 100%;
             padding: 12px;
             border: 1px solid #e0e0e0;
@@ -279,10 +287,12 @@
             transition: all 0.3s;
         }
 
-        input:focus, select:focus, textarea:focus {
+        input:focus,
+        select:focus,
+        textarea:focus {
             outline: none;
             border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
         .btn {
@@ -305,7 +315,7 @@
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102,126,234,0.3);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
         }
 
         .btn-secondary {
@@ -336,6 +346,11 @@
             color: #c62828;
         }
 
+        .badge-info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
         /* Modal */
         .modal {
             display: none;
@@ -344,7 +359,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0, 0, 0, 0.5);
             z-index: 1000;
             align-items: center;
             justify-content: center;
@@ -385,7 +400,7 @@
             background: white;
             padding: 40px;
             border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
             max-width: 600px;
             margin: 0 auto;
         }
@@ -418,9 +433,17 @@
         }
 
         @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+
+            100% {
+                transform: scale(1);
+            }
         }
 
         .scanner-icon {
@@ -465,40 +488,40 @@
             border-radius: 8px;
             display: none;
         }
-        
+
         .location-status.checking {
             background: #fff3e0;
             border: 1px solid #ff9800;
             display: block;
         }
-        
+
         .location-status.success {
             background: #e8f5e9;
             border: 1px solid #4caf50;
             display: block;
         }
-        
+
         .location-status.error {
             background: #ffebee;
             border: 1px solid #f44336;
             display: block;
         }
-        
+
         .location-info {
             display: flex;
             align-items: center;
             gap: 10px;
             margin-top: 10px;
         }
-        
+
         .location-icon {
             font-size: 24px;
         }
-        
+
         .location-details {
             flex: 1;
         }
-        
+
         .location-map {
             width: 100%;
             height: 200px;
@@ -506,19 +529,19 @@
             border-radius: 8px;
             overflow: hidden;
         }
-        
+
         .verification-steps {
             display: flex;
             justify-content: space-between;
             margin: 20px 0;
         }
-        
+
         .step {
             flex: 1;
             text-align: center;
             padding: 10px;
         }
-        
+
         .step-icon {
             width: 50px;
             height: 50px;
@@ -530,17 +553,17 @@
             margin: 0 auto 10px;
             font-size: 24px;
         }
-        
+
         .step.active .step-icon {
             background: #667eea;
             color: white;
         }
-        
+
         .step.completed .step-icon {
             background: #4caf50;
             color: white;
         }
-        
+
         .anti-spoof-warning {
             background: #fff9c4;
             border: 1px solid #f9a825;
@@ -556,16 +579,111 @@
             pointer-events: none;
         }
 
+        /* Biometric Selection Styles */
+        .biometric-selection {
+            margin: 20px 0;
+        }
+
+        .biometric-options {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 15px;
+        }
+
+        .biometric-option {
+            cursor: pointer;
+            position: relative;
+        }
+
+        .biometric-option input[type="radio"] {
+            position: absolute;
+            opacity: 0;
+        }
+
+        .biometric-option .option-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 30px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .biometric-option input[type="radio"]:checked+.option-content {
+            border-color: #4CAF50;
+            background: #e8f5e9;
+        }
+
+        .biometric-option .icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        /* Fingerprint Scanner Animation */
+        .fingerprint-scanner {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .scanner-animation {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            margin: 0 auto 20px;
+        }
+
+        .fingerprint-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 4rem;
+        }
+
+        .pulse-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 100%;
+            border: 3px solid #4CAF50;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        /* Face Scanner Styles */
+        .face-scanner {
+            position: relative;
+            max-width: 320px;
+            margin: 0 auto;
+        }
+
+        #face-video {
+            width: 100%;
+            border-radius: 10px;
+            background: #000;
+        }
+
+        #face-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .sidebar {
                 transform: translateX(-100%);
             }
-            
+
             .main-content {
                 margin-left: 0;
             }
-            
+
             .stats-grid {
                 grid-template-columns: 1fr;
             }
@@ -583,8 +701,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         /* Notifications */
@@ -599,7 +722,7 @@
             transform: translateX(400px);
             transition: transform 0.3s ease;
             z-index: 2000;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
         .notification.show {
@@ -621,8 +744,57 @@
         .page-content {
             display: none;
         }
+
+        /* Browser Support Alert */
+        .browser-support-alert {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #ffeaa7;
+            display: none;
+        }
+
+        .browser-support-alert h4 {
+            margin-bottom: 10px;
+        }
+
+        .browser-support-alert ul {
+            margin-left: 20px;
+        }
+
+        #faceVideoContainer {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.3);
+            display: none;
+            /* Hidden by default */
+        }
+
+        #face-video {
+            display: block;
+            border: 2px solid #667eea;
+            border-radius: 10px;
+            width: 320px;
+            height: 240px;
+        }
+
+        #face-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
     </style>
 </head>
+
 <body>
     <!-- Login Page -->
     <div id="loginPage" class="login-container">
@@ -632,7 +804,7 @@
                 <h1 class="login-title">Pramaan</h1>
                 <p class="login-subtitle">Zero-Knowledge Proof Attendance System</p>
             </div>
-            
+
             <div class="form-group">
                 <label>Login As</label>
                 <select id="loginType" onchange="toggleLoginForm()">
@@ -640,36 +812,76 @@
                     <option value="scholar">Scholar</option>
                 </select>
             </div>
-            
+
             <!-- Admin Login Form -->
             <form id="adminLoginForm">
                 <div class="form-group">
                     <label>Username</label>
                     <input type="text" id="adminUsername" placeholder="Enter username" value="admin">
                 </div>
-                
+
                 <div class="form-group">
                     <label>Password</label>
                     <input type="password" id="adminPassword" placeholder="Enter password" value="admin123">
                 </div>
-                
+
                 <button type="submit" class="btn btn-primary" style="width: 100%;">
                     <span>🔐</span> Login as Admin
                 </button>
             </form>
-            
+
             <!-- Scholar Login Form -->
             <form id="scholarLoginForm" style="display: none;">
                 <div class="form-group">
                     <label>Scholar ID</label>
                     <input type="text" id="scholarId" placeholder="Enter your Scholar ID">
                 </div>
-                
-                <div class="biometric-scanner" onclick="captureBiometric('login')" style="padding: 40px;">
+
+                <!-- Browser Support Alert -->
+                <div id="browserSupportAlert" class="browser-support-alert">
+                    <h4>⚠️ Browser Compatibility</h4>
+                    <p>Your browser may have limited biometric support. For best experience, use:</p>
+                    <ul>
+                        <li>Chrome/Edge 67+ (Windows Hello, Touch ID)</li>
+                        <li>Safari 14+ (Touch ID, Face ID)</li>
+                        <li>Firefox 60+ (limited support)</li>
+                    </ul>
+                </div>
+
+                <!-- Biometric Type Selection -->
+                <div class="biometric-selection">
+                    <label>Choose Authentication Method:</label>
+                    <div class="biometric-options">
+                        <label class="biometric-option">
+                            <input type="radio" name="loginBiometricType" value="simulated" checked>
+                            <div class="option-content">
+                                <span class="icon">🔐</span>
+                                <span>Simulated</span>
+                            </div>
+                        </label>
+                        <label class="biometric-option">
+                            <input type="radio" name="loginBiometricType" value="fingerprint">
+                            <div class="option-content">
+                                <span class="icon">👆</span>
+                                <span>Fingerprint</span>
+                            </div>
+                        </label>
+                        <label class="biometric-option">
+                            <input type="radio" name="loginBiometricType" value="face">
+                            <div class="option-content">
+                                <span class="icon">👤</span>
+                                <span>Face</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="biometric-scanner" id="loginBiometricScanner" onclick="captureBiometric('login')"
+                    style="padding: 40px;">
                     <div class="scanner-icon">👆</div>
                     <p>Click to Scan Biometric</p>
                 </div>
-                
+
                 <button type="submit" class="btn btn-primary" style="width: 100%;">
                     <span>✓</span> Verify & Login
                 </button>
@@ -687,7 +899,7 @@
                     <span>Pramaan Admin</span>
                 </div>
             </div>
-            
+
             <nav class="sidebar-menu">
                 <div class="menu-item active" onclick="showPage('dashboard')">
                     <span>📊</span> Dashboard
@@ -736,19 +948,19 @@
                         <div class="stat-label">Total Scholars</div>
                         <div class="stat-change">+5%</div>
                     </div>
-                    
+
                     <div class="stat-card">
                         <div class="stat-value" id="presentToday">0</div>
                         <div class="stat-label">Present Today</div>
                         <div class="stat-change">+12%</div>
                     </div>
-                    
+
                     <div class="stat-card">
                         <div class="stat-value" id="avgHours">0</div>
                         <div class="stat-label">Avg. Hours Today</div>
                         <div class="stat-change">+8%</div>
                     </div>
-                    
+
                     <div class="stat-card">
                         <div class="stat-value" id="zkpVerifications">0</div>
                         <div class="stat-label">ZKP Verifications</div>
@@ -769,12 +981,13 @@
                                 <th>Name</th>
                                 <th>Department</th>
                                 <th>Action</th>
+                                <th>Biometric</th>
                                 <th>ZKP Status</th>
                             </tr>
                         </thead>
                         <tbody id="recentAttendanceBody">
                             <tr>
-                                <td colspan="6" style="text-align: center;">No attendance records yet</td>
+                                <td colspan="7" style="text-align: center;">No attendance records yet</td>
                             </tr>
                         </tbody>
                     </table>
@@ -804,12 +1017,13 @@
                                 <th>Email</th>
                                 <th>Department</th>
                                 <th>Supervisor</th>
+                                <th>Biometric</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
                         <tbody id="scholarsTableBody">
                             <tr>
-                                <td colspan="6" style="text-align: center;">No scholars registered yet</td>
+                                <td colspan="7" style="text-align: center;">No scholars registered yet</td>
                             </tr>
                         </tbody>
                     </table>
@@ -820,23 +1034,23 @@
             <div id="registerPage" class="page-content">
                 <div class="scholar-interface">
                     <h2>Register New Scholar</h2>
-                    
+
                     <form id="registerScholarForm">
                         <div class="form-group">
                             <label>Scholar ID</label>
                             <input type="text" id="newScholarId" placeholder="e.g., PHD2024001" required>
                         </div>
-                        
+
                         <div class="form-group">
                             <label>Full Name</label>
                             <input type="text" id="newScholarName" placeholder="Enter full name" required>
                         </div>
-                        
+
                         <div class="form-group">
                             <label>Email</label>
                             <input type="email" id="newScholarEmail" placeholder="scholar@university.edu" required>
                         </div>
-                        
+
                         <div class="form-group">
                             <label>Department</label>
                             <select id="newScholarDept" required>
@@ -848,18 +1062,46 @@
                                 <option value="BT">Biotechnology</option>
                             </select>
                         </div>
-                        
+
                         <div class="form-group">
                             <label>Supervisor</label>
                             <input type="text" id="newScholarSupervisor" placeholder="Dr. John Doe" required>
                         </div>
-                        
+
+                        <!-- Biometric Type Selection for Registration -->
+                        <div class="biometric-selection">
+                            <label>Biometric Type:</label>
+                            <div class="biometric-options">
+                                <label class="biometric-option">
+                                    <input type="radio" name="regBiometricType" value="simulated" checked>
+                                    <div class="option-content">
+                                        <span class="icon">🔐</span>
+                                        <span>Simulated</span>
+                                    </div>
+                                </label>
+                                <label class="biometric-option">
+                                    <input type="radio" name="regBiometricType" value="fingerprint">
+                                    <div class="option-content">
+                                        <span class="icon">👆</span>
+                                        <span>Fingerprint</span>
+                                    </div>
+                                </label>
+                                <label class="biometric-option">
+                                    <input type="radio" name="regBiometricType" value="face">
+                                    <div class="option-content">
+                                        <span class="icon">👤</span>
+                                        <span>Face</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
                         <div class="biometric-scanner" id="regBiometricScanner" onclick="captureBiometric('register')">
                             <div class="scanner-icon">🔐</div>
                             <p>Click to Capture Biometric</p>
                             <small>This will be converted to ZKP</small>
                         </div>
-                        
+
                         <button type="submit" class="btn btn-primary" style="width: 100%;">
                             <span>✓</span> Register Scholar
                         </button>
@@ -888,11 +1130,12 @@
                                 <th>Check In</th>
                                 <th>Check Out</th>
                                 <th>Duration</th>
+                                <th>Biometric</th>
                             </tr>
                         </thead>
                         <tbody id="attendanceTableBody">
                             <tr>
-                                <td colspan="7" style="text-align: center;">No attendance records yet</td>
+                                <td colspan="8" style="text-align: center;">No attendance records yet</td>
                             </tr>
                         </tbody>
                     </table>
@@ -903,7 +1146,7 @@
             <div id="reportsPage" class="page-content">
                 <div class="scholar-interface">
                     <h2>Generate Reports</h2>
-                    
+
                     <form id="reportForm">
                         <div class="form-group">
                             <label>Report Type</label>
@@ -912,27 +1155,28 @@
                                 <option value="detailed">Scholar Detailed</option>
                             </select>
                         </div>
-                        
+
                         <div class="form-group">
                             <label>Start Date</label>
                             <input type="date" id="reportStartDate" required>
                         </div>
-                        
+
                         <div class="form-group">
                             <label>End Date</label>
                             <input type="date" id="reportEndDate" required>
                         </div>
-                        
+
                         <button type="submit" class="btn btn-primary">
                             <span>📊</span> Generate Report
                         </button>
                     </form>
-                    
+
                     <div id="reportOutput" style="margin-top: 30px;">
                         <!-- Report will be displayed here -->
                     </div>
                 </div>
             </div>
+
             <!-- ZKP Logs Page -->
             <div id="zkp-logsPage" class="page-content">
                 <div class="data-table">
@@ -946,12 +1190,13 @@
                                 <th>DID</th>
                                 <th>Purpose</th>
                                 <th>Proof Hash</th>
+                                <th>Type</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
                         <tbody id="zkpLogsBody">
                             <tr>
-                                <td colspan="5" style="text-align: center;">No ZKP logs yet</td>
+                                <td colspan="6" style="text-align: center;">No ZKP logs yet</td>
                             </tr>
                         </tbody>
                     </table>
@@ -962,35 +1207,37 @@
             <div id="location-settingsPage" class="page-content">
                 <div class="scholar-interface">
                     <h2>Location Settings</h2>
-                    
+
                     <div class="form-group">
                         <label>Campus Center Coordinates</label>
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <input type="number" id="campusLat" placeholder="Latitude" step="0.000001" value="28.5355">
                             <input type="number" id="campusLng" placeholder="Longitude" step="0.000001" value="77.3910">
-                            <button class="btn btn-secondary" onclick="useCurrentLocation()" style="white-space: nowrap;">
+                            <button class="btn btn-secondary" onclick="useCurrentLocation()"
+                                style="white-space: nowrap;">
                                 <span>📍</span> Use Current Location
                             </button>
                         </div>
-                        <small style="color: #666; display: block; margin-top: 5px;">Click "Use Current Location" to automatically detect your current coordinates</small>
+                        <small style="color: #666; display: block; margin-top: 5px;">Click "Use Current Location" to
+                            automatically detect your current coordinates</small>
                     </div>
-                    
+
                     <div class="form-group">
                         <label>Campus Radius (meters)</label>
                         <input type="number" id="campusRadius" placeholder="500" value="500">
                     </div>
-                    
+
                     <div class="form-group">
                         <label>WiFi Access Points</label>
                         <textarea id="wifiMACs" rows="4" placeholder="Enter MAC addresses (one per line)">AA:BB:CC:DD:EE:01
 AA:BB:CC:DD:EE:02
 AA:BB:CC:DD:EE:03</textarea>
                     </div>
-                    
+
                     <button class="btn btn-primary" onclick="saveLocationSettings()">
                         <span>💾</span> Save Settings
                     </button>
-                    
+
                     <div class="location-map" id="campusMap" style="margin-top: 20px;"></div>
                 </div>
             </div>
@@ -1007,10 +1254,10 @@ AA:BB:CC:DD:EE:03</textarea>
                     <button class="btn btn-secondary" onclick="logout()">Logout</button>
                 </div>
             </div>
-            
+
             <div class="scholar-interface">
                 <h2>Mark Attendance - Location Verified</h2>
-                
+
                 <div class="stats-grid" style="margin-bottom: 30px;">
                     <div class="stat-card">
                         <div class="stat-value" id="scholarTotalDays">0</div>
@@ -1021,7 +1268,7 @@ AA:BB:CC:DD:EE:03</textarea>
                         <div class="stat-label">Avg. Hours/Day</div>
                     </div>
                 </div>
-                
+
                 <!-- Verification Steps -->
                 <div class="verification-steps">
                     <div class="step" id="step-location">
@@ -1037,7 +1284,7 @@ AA:BB:CC:DD:EE:03</textarea>
                         <div>Verify</div>
                     </div>
                 </div>
-                
+
                 <!-- Location Status -->
                 <div class="location-status" id="locationStatus">
                     <div class="location-info">
@@ -1049,24 +1296,59 @@ AA:BB:CC:DD:EE:03</textarea>
                     </div>
                     <div id="locationMap" class="location-map" style="display: none;"></div>
                 </div>
-                
+
                 <!-- Anti-Spoofing Warning -->
                 <div class="anti-spoof-warning" style="display: none;" id="antiSpoofWarning">
-                    ⚠️ Warning: Mock location apps, VPNs, or location spoofing will be detected and attendance will be rejected.
+                    ⚠️ Warning: Mock location apps, VPNs, or location spoofing will be detected and attendance will be
+                    rejected.
                 </div>
-                
+
+                <!-- Biometric Type Selection for Attendance -->
+                <div class="biometric-selection" id="attendanceBiometricSelection" style="display: none;">
+                    <label>Choose Biometric Method:</label>
+                    <div class="biometric-options">
+                        <label class="biometric-option">
+                            <input type="radio" name="attendanceBiometricType" value="simulated" checked>
+                            <div class="option-content">
+                                <span class="icon">🔐</span>
+                                <span>Simulated</span>
+                            </div>
+                        </label>
+                        <label class="biometric-option">
+                            <input type="radio" name="attendanceBiometricType" value="fingerprint">
+                            <div class="option-content">
+                                <span class="icon">👆</span>
+                                <span>Fingerprint</span>
+                            </div>
+                        </label>
+                        <label class="biometric-option">
+                            <input type="radio" name="attendanceBiometricType" value="face">
+                            <div class="option-content">
+                                <span class="icon">👤</span>
+                                <span>Face</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Biometric Scanner -->
                 <div class="biometric-scanner disabled" id="attendanceBiometric">
                     <div class="scanner-icon">👆</div>
                     <p>Location verification required first</p>
                     <small>Verify with biometric</small>
                 </div>
-                
+
+                <!-- Face Video Element (hidden by default) -->
+                <div id="faceVideoContainer" style="display: none;">
+                    <video id="face-video" width="320" height="240" autoplay></video>
+                    <canvas id="face-overlay" width="320" height="240"></canvas>
+                </div>
+
                 <!-- Submit Button -->
                 <button class="btn btn-primary" id="submitAttendance" disabled style="width: 100%; margin-top: 20px;">
                     Verify Location First
                 </button>
-                
+
                 <div class="data-table" style="margin-top: 30px;">
                     <div class="table-header">
                         <h3 class="table-title">My Attendance History</h3>
@@ -1079,12 +1361,13 @@ AA:BB:CC:DD:EE:03</textarea>
                                 <th>Check Out</th>
                                 <th>Duration</th>
                                 <th>Location</th>
+                                <th>Biometric</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
                         <tbody id="scholarAttendanceBody">
                             <tr>
-                                <td colspan="6" style="text-align: center;">No attendance history</td>
+                                <td colspan="7" style="text-align: center;">No attendance history</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1117,8 +1400,11 @@ AA:BB:CC:DD:EE:03</textarea>
         let locationVerified = false;
         let biometricCaptured = false;
         let locationData = null;
+        let selectedBiometricType = 'simulated';
+        let faceApiLoaded = false;
+        let currentStream = null;
         const API_URL = 'http://localhost:5000/api';
-        
+
         // Campus configuration (update with your college coordinates)
         const CAMPUS_CONFIG = {
             center: { lat: 28.5355, lng: 77.3910 }, // Replace with your college coordinates
@@ -1130,180 +1416,639 @@ AA:BB:CC:DD:EE:03</textarea>
             ]
         };
 
-        // Update time
-        function updateTime() {
-            const now = new Date();
-            const timeElements = document.querySelectorAll('#currentTime');
-            timeElements.forEach(el => {
-                if (el) el.textContent = now.toLocaleString();
-            });
-        }
-        setInterval(updateTime, 1000);
-        updateTime();
-
-        // Toggle login form
-        function toggleLoginForm() {
-            const loginType = document.getElementById('loginType').value;
-            const adminForm = document.getElementById('adminLoginForm');
-            const scholarForm = document.getElementById('scholarLoginForm');
-            
-            if (loginType === 'admin') {
-                adminForm.style.display = 'block';
-                scholarForm.style.display = 'none';
-            } else {
-                adminForm.style.display = 'none';
-                scholarForm.style.display = 'block';
+        // BiometricHandler class for real biometric integration
+        class BiometricHandler {
+            constructor() {
+                this.API_URL = window.location.origin + '/api';
+                this.isWebAuthnSupported = this.checkWebAuthnSupport();
+                this.isFaceAPILoaded = false;
+                this.registrationMode = false;
             }
-        }
 
-        // Show notification
-        function showNotification(message, type = 'success') {
-            const notification = document.getElementById('notification');
-            notification.textContent = message;
-            notification.className = `notification ${type} show`;
-            
-            setTimeout(() => {
-                notification.classList.remove('show');
-            }, 4000);
-        }
+            checkWebAuthnSupport() {
+                return window.PublicKeyCredential &&
+                    navigator.credentials &&
+                    navigator.credentials.create;
+            }
 
-        // Admin login
-        document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const username = document.getElementById('adminUsername').value;
-            const password = document.getElementById('adminPassword').value;
-            
-            try {
-                const response = await fetch(`${API_URL}/admin/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    authToken = data.token;
-                    currentUser = data.admin;
-                    localStorage.setItem('authToken', authToken);
-                    localStorage.setItem('userRole', 'admin');
-                    
-                    document.getElementById('loginPage').style.display = 'none';
-                    document.getElementById('adminDashboard').style.display = 'block';
-                    document.getElementById('adminName').textContent = currentUser.username;
-                    
-                    showNotification('Login successful!', 'success');
-                    loadDashboard();
-                } else {
-                    showNotification(data.error || 'Login failed', 'error');
+            async registerFace() {
+                await this.loadFaceAPI();
+
+                // Get the scholarId from the form
+                const scholarId = document.getElementById('newScholarId').value;
+                if (!scholarId) {
+                    throw new Error('Scholar ID is required');
                 }
-            } catch (error) {
-                showNotification('Connection error', 'error');
-            }
-        });
 
-        // Scholar login
-        document.getElementById('scholarLoginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const scholarId = document.getElementById('scholarId').value;
-            
-            if (!capturedBiometric) {
-                showNotification('Please scan your biometric first', 'error');
-                return;
-            }
-            
-            try {
-                const response = await fetch(`${API_URL}/scholar/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ scholarId, biometricData: capturedBiometric })
+                const video = document.getElementById('face-video');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: 640,
+                        height: 480,
+                        facingMode: 'user'
+                    }
                 });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    authToken = data.token;
-                    currentUser = data.scholar;
-                    localStorage.setItem('authToken', authToken);
-                    localStorage.setItem('userRole', 'scholar');
-                    
-                    document.getElementById('loginPage').style.display = 'none';
-                    document.getElementById('scholarDashboard').style.display = 'block';
-                    document.getElementById('scholarName').textContent = currentUser.name;
-                    
-                    showNotification('Login successful!', 'success');
-                    loadScholarDashboard();
-                    
-                    // Start location verification after login
-                    setTimeout(() => {
-                        checkLocationPermissions();
-                    }, 1000);
-                } else {
-                    showNotification(data.error || 'Login failed', 'error');
-                }
-            } catch (error) {
-                showNotification('Connection error', 'error');
-            }
-        });
 
-        // Capture biometric
+                video.srcObject = stream;
+                currentStream = stream;
+
+                return new Promise((resolve, reject) => {
+                    video.onloadedmetadata = async () => {
+                        try {
+                            // Show video container
+                            document.getElementById('faceVideoContainer').style.display = 'block';
+
+                            // Add instruction text
+                            const container = document.getElementById('faceVideoContainer');
+                            if (!container.querySelector('.instructions')) {
+                                const instructions = document.createElement('div');
+                                instructions.className = 'instructions';
+                                instructions.innerHTML = '<p style="text-align: center; margin: 10px;">Position your face in the center of the frame</p>';
+                                container.appendChild(instructions);
+                            }
+
+                            // Wait for user to position face
+                            let detectionAttempts = 0;
+                            const maxAttempts = 10;
+                            let detections = null;
+
+                            while (!detections && detectionAttempts < maxAttempts) {
+                                detectionAttempts++;
+                                console.log(`Detection attempt ${detectionAttempts}/${maxAttempts}`);
+
+                                const options = new faceapi.TinyFaceDetectorOptions({
+                                    inputSize: 416,
+                                    scoreThreshold: 0.3
+                                });
+
+                                detections = await faceapi
+                                    .detectSingleFace(video, options)
+                                    .withFaceLandmarks()
+                                    .withFaceDescriptor();
+
+                                if (!detections) {
+                                    await new Promise(r => setTimeout(r, 500));
+                                }
+                            }
+
+                            if (!detections) {
+                                throw new Error('No face detected. Please ensure good lighting.');
+                            }
+
+                            console.log('Face detected with score:', detections.detection.score);
+
+                            // Convert descriptor to base64
+                            const descriptor = btoa(String.fromCharCode(...new Uint8Array(detections.descriptor.buffer)));
+
+                            // Stop video stream
+                            stream.getTracks().forEach(track => track.stop());
+                            document.getElementById('faceVideoContainer').style.display = 'none';
+
+                            // Register with server - INCLUDE scholarId!
+                            const response = await fetch(`${this.API_URL}/biometric/register/face`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${authToken}`
+                                },
+                                body: JSON.stringify({
+                                    faceDescriptor: descriptor,
+                                    scholarId: scholarId // Add scholarId here
+                                })
+                            });
+
+                            const result = await response.json();
+
+                            if (!response.ok) {
+                                throw new Error(result.error || 'Registration failed');
+                            }
+
+                            resolve(result);
+
+                        } catch (error) {
+                            stream.getTracks().forEach(track => track.stop());
+                            document.getElementById('faceVideoContainer').style.display = 'none';
+                            reject(error);
+                        }
+                    };
+                });
+            }
+
+            async loadFaceAPI() {
+                if (this.isFaceAPILoaded || faceApiLoaded) return;
+
+                try {
+                    if (typeof faceapi === 'undefined') {
+                        await new Promise((resolve) => {
+                            const checkInterval = setInterval(() => {
+                                if (typeof faceapi !== 'undefined') {
+                                    clearInterval(checkInterval);
+                                    resolve();
+                                }
+                            }, 100);
+                        });
+                    }
+
+                    const modelPaths = ['/models', './models', 'models', '/public/models'];
+                    let loaded = false;
+
+                    for (const MODEL_URL of modelPaths) {
+                        try {
+                            console.log(`Trying to load models from: ${MODEL_URL}`);
+
+                            await Promise.all([
+                                faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                                faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                                faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                            ]);
+
+                            console.log(`Models loaded successfully from: ${MODEL_URL}`);
+                            loaded = true;
+                            break;
+                        } catch (e) {
+                            console.error(`Failed to load from ${MODEL_URL}:`, e);
+                        }
+                    }
+
+                    if (!loaded) {
+                        throw new Error('Failed to load face recognition models from any path');
+                    }
+
+                    this.isFaceAPILoaded = true;
+                    faceApiLoaded = true;
+
+                } catch (error) {
+                    console.error('Failed to load face-api models:', error);
+                    throw new Error('Face recognition models not available.');
+                }
+            }
+
+            async captureFingerprint() {
+                if (!this.isWebAuthnSupported) {
+                    throw new Error('WebAuthn not supported on this device');
+                }
+
+                try {
+                    // Create a temporary credential for registration
+                    const challenge = new Uint8Array(32);
+                    window.crypto.getRandomValues(challenge);
+
+                    const publicKeyCredentialCreationOptions = {
+                        challenge: challenge,
+                        rp: {
+                            name: "Pramaan Attendance System",
+                            id: window.location.hostname,
+                        },
+                        user: {
+                            id: new TextEncoder().encode(Math.random().toString(36).substring(7)),
+                            name: "temp@pramaan.com",
+                            displayName: "Temporary User",
+                        },
+                        pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+                        authenticatorSelection: {
+                            authenticatorAttachment: "platform",
+                            userVerification: "required"
+                        },
+                        timeout: 60000,
+                        attestation: "direct"
+                    };
+
+                    const credential = await navigator.credentials.create({
+                        publicKey: publicKeyCredentialCreationOptions
+                    });
+
+                    // Return the credential data to be stored
+                    return {
+                        credentialId: credential.id,
+                        publicKey: btoa(String.fromCharCode(...new Uint8Array(credential.response.publicKey || new Uint8Array()))),
+                        type: 'webauthn'
+                    };
+
+                } catch (error) {
+                    console.error('Fingerprint capture error:', error);
+                    throw error;
+                }
+            }
+
+            async captureFace() {
+                await this.loadFaceAPI();
+
+                const video = document.getElementById('face-video');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: 640,
+                        height: 480,
+                        facingMode: 'user'
+                    }
+                });
+
+                video.srcObject = stream;
+                currentStream = stream;
+
+                return new Promise((resolve, reject) => {
+                    video.onloadedmetadata = async () => {
+                        try {
+                            document.getElementById('faceVideoContainer').style.display = 'block';
+
+                            const container = document.getElementById('faceVideoContainer');
+                            if (!container.querySelector('.instructions')) {
+                                const instructions = document.createElement('div');
+                                instructions.className = 'instructions';
+                                instructions.innerHTML = '<p style="text-align: center; margin: 10px;">Position your face in the center of the frame</p>';
+                                container.appendChild(instructions);
+                            }
+
+                            let detectionAttempts = 0;
+                            const maxAttempts = 10;
+                            let detections = null;
+
+                            while (!detections && detectionAttempts < maxAttempts) {
+                                detectionAttempts++;
+                                console.log(`Detection attempt ${detectionAttempts}/${maxAttempts}`);
+
+                                const options = new faceapi.TinyFaceDetectorOptions({
+                                    inputSize: 416,
+                                    scoreThreshold: 0.3
+                                });
+
+                                detections = await faceapi
+                                    .detectSingleFace(video, options)
+                                    .withFaceLandmarks()
+                                    .withFaceDescriptor();
+
+                                if (!detections) {
+                                    await new Promise(r => setTimeout(r, 500));
+                                }
+                            }
+
+                            if (!detections) {
+                                throw new Error('No face detected. Please ensure good lighting.');
+                            }
+
+                            console.log('Face detected with score:', detections.detection.score);
+
+                            const descriptor = btoa(String.fromCharCode(...new Uint8Array(detections.descriptor.buffer)));
+
+                            stream.getTracks().forEach(track => track.stop());
+                            document.getElementById('faceVideoContainer').style.display = 'none';
+
+                            resolve({
+                                descriptor: descriptor,
+                                type: 'face'
+                            });
+
+                        } catch (error) {
+                            stream.getTracks().forEach(track => track.stop());
+                            document.getElementById('faceVideoContainer').style.display = 'none';
+                            reject(error);
+                        }
+                    };
+                });
+            }
+
+            // async registerFingerprint() {
+            //     if (!this.isWebAuthnSupported) {
+            //         throw new Error('WebAuthn not supported on this device');
+            //     }
+
+            //     try {
+            //         // Get the scholarId from the form
+            //         const scholarId = document.getElementById('newScholarId').value;
+            //         if (!scholarId) {
+            //             throw new Error('Scholar ID is required');
+            //         }
+
+            //         // Get registration options from server
+            //         const optionsResponse = await fetch(`${this.API_URL}/biometric/register/fingerprint/options`, {
+            //             method: 'POST',
+            //             headers: {
+            //                 'Content-Type': 'application/json',
+            //                 'Authorization': `Bearer ${authToken}`
+            //             },
+            //             body: JSON.stringify({ scholarId }) // Pass scholarId
+            //         });
+
+            //         if (!optionsResponse.ok) {
+            //             const error = await optionsResponse.json();
+            //             throw new Error(error.error || 'Failed to get registration options');
+            //         }
+
+            //         const options = await optionsResponse.json();
+
+            //         // Convert challenge and user ID
+            //         options.challenge = Uint8Array.from(options.challenge, c => c.charCodeAt(0));
+            //         options.user.id = Uint8Array.from(options.user.id, c => c.charCodeAt(0));
+
+            //         // Create credential
+            //         const credential = await navigator.credentials.create({
+            //             publicKey: options
+            //         });
+
+            //         // Prepare credential for server
+            //         const credentialForServer = {
+            //             id: credential.id,
+            //             rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+            //             type: credential.type,
+            //             response: {
+            //                 clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),
+            //                 attestationObject: btoa(String.fromCharCode(...new Uint8Array(credential.response.attestationObject)))
+            //             }
+            //         };
+
+            //         // Verify with server
+            //         const verifyResponse = await fetch(`${this.API_URL}/biometric/register/fingerprint/verify`, {
+            //             method: 'POST',
+            //             headers: {
+            //                 'Content-Type': 'application/json',
+            //                 'Authorization': `Bearer ${authToken}`
+            //             },
+            //             body: JSON.stringify({
+            //                 credential: credentialForServer,
+            //                 scholarId // Include scholarId
+            //             })
+            //         });
+
+            //         const result = await verifyResponse.json();
+
+            //         if (!verifyResponse.ok) {
+            //             throw new Error(result.error || 'Registration failed');
+            //         }
+
+            //         return result;
+
+            //     } catch (error) {
+            //         console.error('Fingerprint registration error:', error);
+            //         throw error;
+            //     }
+            // }
+
+            async authenticateFingerprint(scholarId) {
+                if (!this.isWebAuthnSupported) {
+                    throw new Error('WebAuthn not supported on this device');
+                }
+
+                try {
+                    // Get authentication options
+                    const optionsResponse = await fetch(`${this.API_URL}/biometric/auth/fingerprint/options`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ scholarId })
+                    });
+
+                    if (!optionsResponse.ok) {
+                        throw new Error('Failed to get authentication options');
+                    }
+
+                    const options = await optionsResponse.json();
+
+                    // Convert challenge
+                    options.challenge = Uint8Array.from(options.challenge, c => c.charCodeAt(0));
+
+                    // Convert credential IDs
+                    if (options.allowCredentials) {
+                        options.allowCredentials = options.allowCredentials.map(cred => ({
+                            ...cred,
+                            id: Uint8Array.from(atob(cred.id), c => c.charCodeAt(0))
+                        }));
+                    }
+
+                    // Get credential
+                    const assertion = await navigator.credentials.get({
+                        publicKey: options
+                    });
+
+                    // Prepare for server
+                    const credentialForServer = {
+                        id: assertion.id,
+                        rawId: btoa(String.fromCharCode(...new Uint8Array(assertion.rawId))),
+                        type: assertion.type,
+                        response: {
+                            clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(assertion.response.clientDataJSON))),
+                            authenticatorData: btoa(String.fromCharCode(...new Uint8Array(assertion.response.authenticatorData))),
+                            signature: btoa(String.fromCharCode(...new Uint8Array(assertion.response.signature))),
+                            userHandle: assertion.response.userHandle ?
+                                btoa(String.fromCharCode(...new Uint8Array(assertion.response.userHandle))) : null
+                        }
+                    };
+
+                    // Verify with server
+                    const verifyResponse = await fetch(`${this.API_URL}/biometric/auth/fingerprint/verify`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ credential: credentialForServer })
+                    });
+
+                    const result = await verifyResponse.json();
+
+                    if (!verifyResponse.ok) {
+                        throw new Error(result.error || 'Authentication failed');
+                    }
+
+                    return result;
+
+                } catch (error) {
+                    console.error('Fingerprint authentication error:', error);
+                    throw error;
+                }
+            }
+
+            async authenticateFace() {
+                await this.loadFaceAPI();
+
+                const video = document.getElementById('face-video');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 }
+                });
+
+                video.srcObject = stream;
+                currentStream = stream;
+
+                return new Promise((resolve, reject) => {
+                    video.onloadedmetadata = async () => {
+                        try {
+                            // Show video container
+                            document.getElementById('faceVideoContainer').style.display = 'block';
+
+                            // Wait for user to position face
+                            await new Promise(r => setTimeout(r, 2000));
+
+                            // Detect face
+                            const detections = await faceapi
+                                .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+                                .withFaceLandmarks()
+                                .withFaceDescriptor();
+
+                            if (!detections) {
+                                throw new Error('No face detected');
+                            }
+
+                            // Convert descriptor to base64
+                            const descriptor = btoa(String.fromCharCode(...new Uint8Array(detections.descriptor.buffer)));
+
+                            // Stop video stream
+                            stream.getTracks().forEach(track => track.stop());
+                            document.getElementById('faceVideoContainer').style.display = 'none';
+
+                            resolve({ descriptor });
+
+                        } catch (error) {
+                            stream.getTracks().forEach(track => track.stop());
+                            document.getElementById('faceVideoContainer').style.display = 'none';
+                            reject(error);
+                        }
+                    };
+                });
+            }
+        }
+
+        // Make BiometricHandler globally available
+        window.BiometricHandler = BiometricHandler;
+        const biometricHandler = new BiometricHandler();
+
+        // Capture biometric function
+
         async function captureBiometric(type) {
-            const scanner = type === 'register' ? 
-                document.getElementById('regBiometricScanner') : 
-                (type === 'login' ? 
-                    document.querySelector('#scholarLoginForm .biometric-scanner') :
+            let selectedType = 'simulated';
+            if (type === 'login') {
+                selectedType = document.querySelector('input[name="loginBiometricType"]:checked').value;
+            } else if (type === 'register') {
+                selectedType = document.querySelector('input[name="regBiometricType"]:checked').value;
+            } else if (type === 'attendance') {
+                selectedType = document.querySelector('input[name="attendanceBiometricType"]:checked').value;
+            }
+
+            selectedBiometricType = selectedType;
+
+            const scanner = type === 'register' ?
+                document.getElementById('regBiometricScanner') :
+                (type === 'login' ?
+                    document.getElementById('loginBiometricScanner') :
                     document.getElementById('attendanceBiometric'));
-            
+
             if (!scanner) return;
-            
-            // For attendance, check if location is verified
+
             if (type === 'attendance' && !locationVerified) {
                 showNotification('Please verify your location first', 'error');
                 return;
             }
-            
-            scanner.classList.add('scanning');
-            scanner.innerHTML = `
+
+            try {
+                if (selectedType === 'fingerprint') {
+                    scanner.classList.add('scanning');
+                    scanner.innerHTML = `
+                <div class="loading"></div>
+                <p>Touch your fingerprint sensor...</p>
+                <small>Using device biometric</small>
+            `;
+
+                    if (type === 'register') {
+                        // For registration, just capture the biometric
+                        const biometricData = await biometricHandler.captureFingerprint();
+                        capturedBiometric = biometricData;
+                    } else {
+                        // For login/attendance, use authentication
+                        capturedBiometric = { type: 'webauthn', ready: true };
+                    }
+
+                    scanner.classList.remove('scanning');
+                    scanner.classList.add('success');
+                    scanner.innerHTML = `
+                <div class="scanner-icon">✅</div>
+                <p>Fingerprint ${type === 'register' ? 'Captured' : 'Ready'}</p>
+                <small>Biometric ${type === 'register' ? 'captured' : 'configured'}</small>
+            `;
+
+                } else if (selectedType === 'face') {
+                    scanner.classList.add('scanning');
+                    scanner.innerHTML = `
+                <div class="loading"></div>
+                <p>Initializing camera...</p>
+                <small>Position your face in the frame</small>
+            `;
+
+                    if (type === 'register') {
+                        // For registration, just capture the face
+                        const faceData = await biometricHandler.captureFace();
+                        capturedBiometric = faceData;
+                    } else {
+                        // For login/attendance, use authentication
+                        const faceData = await biometricHandler.authenticateFace();
+                        capturedBiometric = { type: 'face', descriptor: faceData.descriptor };
+                    }
+
+                    scanner.classList.remove('scanning');
+                    scanner.classList.add('success');
+                    scanner.innerHTML = `
+                <div class="scanner-icon">✅</div>
+                <p>Face Captured</p>
+                <small>Biometric ready</small>
+            `;
+
+                } else {
+                    // Simulated biometric
+                    scanner.classList.add('scanning');
+                    scanner.innerHTML = `
                 <div class="loading"></div>
                 <p>Scanning biometric...</p>
                 <small>Processing with ZKP</small>
             `;
-            
-            // Simulate biometric capture
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Generate simulated biometric data
-            capturedBiometric = 'bio_' + Math.random().toString(36).substr(2, 9);
-            
-            scanner.classList.remove('scanning');
-            scanner.classList.add('success');
-            scanner.innerHTML = `
+
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
+                    capturedBiometric = 'bio_' + Math.random().toString(36).substr(2, 9);
+
+                    scanner.classList.remove('scanning');
+                    scanner.classList.add('success');
+                    scanner.innerHTML = `
                 <div class="scanner-icon">✅</div>
                 <p>Biometric Captured</p>
                 <small>ZKP Generated</small>
             `;
-            
-            if (type === 'attendance') {
-                biometricCaptured = true;
-                document.getElementById('step-biometric').classList.remove('active');
-                document.getElementById('step-biometric').classList.add('completed');
-                
-                // Enable submit button
-                const submitBtn = document.getElementById('submitAttendance');
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Submit Attendance';
-            }
-            
-            setTimeout(() => {
+                }
+
+                if (type === 'attendance') {
+                    biometricCaptured = true;
+                    document.getElementById('step-biometric').classList.remove('active');
+                    document.getElementById('step-biometric').classList.add('completed');
+
+                    const submitBtn = document.getElementById('submitAttendance');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit Attendance';
+                }
+
+                setTimeout(() => {
+                    scanner.classList.remove('success');
+                    scanner.innerHTML = `
+                <div class="scanner-icon">${selectedType === 'fingerprint' ? '👆' : selectedType === 'face' ? '👤' : '🔐'}</div>
+                <p>Click to ${type === 'register' ? 'Capture' : 'Scan'} Biometric</p>
+                <small>${type === 'register' ? 'This will be converted to ZKP' : 'Verify with biometric'}</small>
+            `;
+                }, 3000);
+
+            } catch (error) {
+                console.error('Biometric capture error:', error);
+                scanner.classList.remove('scanning');
                 scanner.classList.remove('success');
                 scanner.innerHTML = `
-                    <div class="scanner-icon">${type === 'register' ? '🔐' : '👆'}</div>
-                    <p>Click to ${type === 'register' ? 'Capture' : 'Scan'} Biometric</p>
-                    <small>${type === 'register' ? 'This will be converted to ZKP' : 'Verify with biometric'}</small>
-                `;
-            }, 3000);
+            <div class="scanner-icon">❌</div>
+            <p>Capture Failed</p>
+            <small>${error.message}</small>
+        `;
+
+                showNotification(error.message || 'Biometric capture failed', 'error');
+
+                setTimeout(() => {
+                    scanner.innerHTML = `
+                <div class="scanner-icon">${selectedType === 'fingerprint' ? '👆' : selectedType === 'face' ? '👤' : '🔐'}</div>
+                <p>Click to ${type === 'register' ? 'Capture' : 'Scan'} Biometric</p>
+                <small>Try again</small>
+            `;
+                }, 3000);
+            }
         }
 
         // Check location permissions
@@ -1326,27 +2071,27 @@ AA:BB:CC:DD:EE:03</textarea>
                 updateLocationStatus('error', 'Location services not available in this browser', '❌');
             }
         }
-        
+
         // Verify location
         async function verifyLocation() {
             updateLocationStatus('checking', 'Verifying your location...', '🔍');
             document.getElementById('step-location').classList.add('active');
-            
+
             // Show anti-spoofing warning
             document.getElementById('antiSpoofWarning').style.display = 'block';
-            
+
             navigator.geolocation.getCurrentPosition(
                 async (position) => {
                     // Collect comprehensive location data
                     locationData = {
-                        gps: {
+                        coordinates: {
                             latitude: position.coords.latitude,
                             longitude: position.coords.longitude,
                             accuracy: position.coords.accuracy
                         },
                         timestamp: position.timestamp
                     };
-                    
+
                     // Check if within campus
                     const distance = calculateDistance(
                         position.coords.latitude,
@@ -1354,24 +2099,27 @@ AA:BB:CC:DD:EE:03</textarea>
                         CAMPUS_CONFIG.center.lat,
                         CAMPUS_CONFIG.center.lng
                     );
-                    
+
                     if (distance <= CAMPUS_CONFIG.radius) {
                         // Determine specific location
                         const building = findNearestBuilding(position.coords);
-                        
+
                         locationVerified = true;
                         updateLocationStatus(
                             'success',
                             `Location verified: ${building || 'Main Campus'}`,
                             '✅'
                         );
-                        
+
                         document.getElementById('step-location').classList.remove('active');
                         document.getElementById('step-location').classList.add('completed');
-                        
+
+                        // Show biometric selection
+                        document.getElementById('attendanceBiometricSelection').style.display = 'block';
+
                         // Enable biometric scanner
                         enableBiometricScanner();
-                        
+
                         // Show map
                         showLocationOnMap(position.coords);
                     } else {
@@ -1384,7 +2132,7 @@ AA:BB:CC:DD:EE:03</textarea>
                 },
                 (error) => {
                     let errorMessage = 'Location verification failed';
-                    switch(error.code) {
+                    switch (error.code) {
                         case error.PERMISSION_DENIED:
                             errorMessage = 'Location access denied. Please enable it in browser settings.';
                             break;
@@ -1404,28 +2152,28 @@ AA:BB:CC:DD:EE:03</textarea>
                 }
             );
         }
-        
+
         // Calculate distance between two coordinates (Haversine formula)
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371e3; // Earth radius in meters
-            const φ1 = lat1 * Math.PI/180;
-            const φ2 = lat2 * Math.PI/180;
-            const Δφ = (lat2-lat1) * Math.PI/180;
-            const Δλ = (lon2-lon1) * Math.PI/180;
-            
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                      Math.cos(φ1) * Math.cos(φ2) *
-                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+            const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
             return R * c;
         }
-        
+
         // Find nearest building
         function findNearestBuilding(coords) {
             let nearestBuilding = null;
             let minDistance = Infinity;
-            
+
             CAMPUS_CONFIG.buildings.forEach(building => {
                 const distance = calculateDistance(
                     coords.latitude,
@@ -1433,33 +2181,33 @@ AA:BB:CC:DD:EE:03</textarea>
                     building.lat,
                     building.lng
                 );
-                
+
                 if (distance <= building.radius && distance < minDistance) {
                     nearestBuilding = building.name;
                     minDistance = distance;
                 }
             });
-            
+
             return nearestBuilding;
         }
-        
+
         // Update location status UI
         function updateLocationStatus(status, message, icon) {
             const statusDiv = document.getElementById('locationStatus');
             statusDiv.className = `location-status ${status}`;
             document.getElementById('locationIcon').textContent = icon;
-            document.getElementById('locationTitle').textContent = 
+            document.getElementById('locationTitle').textContent =
                 status === 'checking' ? 'Verifying Location...' :
-                status === 'success' ? 'Location Verified' :
-                'Location Verification Failed';
+                    status === 'success' ? 'Location Verified' :
+                        'Location Verification Failed';
             document.getElementById('locationMessage').textContent = message;
         }
-        
+
         // Show location on map
         function showLocationOnMap(coords) {
             const mapDiv = document.getElementById('locationMap');
             mapDiv.style.display = 'block';
-            
+
             // In real implementation, use Google Maps or Leaflet
             mapDiv.innerHTML = `
                 <div style="background: #e0e0e0; height: 100%; display: flex; align-items: center; justify-content: center;">
@@ -1472,7 +2220,7 @@ AA:BB:CC:DD:EE:03</textarea>
                 </div>
             `;
         }
-        
+
         // Enable biometric scanner after location verification
         function enableBiometricScanner() {
             const scanner = document.getElementById('attendanceBiometric');
@@ -1483,7 +2231,7 @@ AA:BB:CC:DD:EE:03</textarea>
                 <small>Verify with biometric</small>
             `;
             scanner.onclick = () => captureBiometric('attendance');
-            
+
             document.getElementById('submitAttendance').textContent = 'Scan Biometric to Continue';
         }
 
@@ -1491,16 +2239,16 @@ AA:BB:CC:DD:EE:03</textarea>
         function showPage(page) {
             // Hide all pages
             document.querySelectorAll('.page-content').forEach(p => p.style.display = 'none');
-            
+
             // Remove active class from menu items
             document.querySelectorAll('.menu-item').forEach(item => item.classList.remove('active'));
-            
+
             // Show selected page
             document.getElementById(page + 'Page').style.display = 'block';
-            
+
             // Update active menu item
             event.target.closest('.menu-item').classList.add('active');
-            
+
             // Update page title
             const titles = {
                 'dashboard': 'Dashboard',
@@ -1512,9 +2260,9 @@ AA:BB:CC:DD:EE:03</textarea>
                 'location-settings': 'Location Settings'
             };
             document.getElementById('pageTitle').textContent = titles[page] || 'Dashboard';
-            
+
             // Load page data
-            switch(page) {
+            switch (page) {
                 case 'dashboard':
                     loadDashboard();
                     break;
@@ -1536,36 +2284,38 @@ AA:BB:CC:DD:EE:03</textarea>
                 const response = await fetch(`${API_URL}/admin/dashboard`, {
                     headers: { 'Authorization': `Bearer ${authToken}` }
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
-                    
+
                     document.getElementById('totalScholars').textContent = data.totalScholars;
                     document.getElementById('presentToday').textContent = data.presentToday;
                     document.getElementById('avgHours').textContent = data.avgHours;
-                    document.getElementById('zkpVerifications').textContent = data.presentToday * 2;
-                    
+                    document.getElementById('zkpVerifications').textContent =
+                        (data.zkpStats?.real || 0) + (data.zkpStats?.simulated || 0);
+
                     // Update recent attendance
                     const tbody = document.getElementById('recentAttendanceBody');
                     tbody.innerHTML = '';
-                    
+
                     if (data.recentAttendance && data.recentAttendance.length > 0) {
                         data.recentAttendance.forEach(record => {
                             const row = tbody.insertRow();
                             const checkInTime = new Date(record.checkIn).toLocaleTimeString();
                             const action = record.checkOut ? 'Check-out' : 'Check-in';
-                            
+
                             row.innerHTML = `
                                 <td>${checkInTime}</td>
                                 <td>${record.scholarId}</td>
                                 <td>${record.scholarName || 'Loading...'}</td>
                                 <td>${record.department || 'CS'}</td>
                                 <td><span class="badge ${record.checkOut ? 'badge-warning' : 'badge-success'}">${action}</span></td>
+                                <td><span class="badge badge-info">${record.biometricType || 'Simulated'}</span></td>
                                 <td><span class="badge badge-success">Verified</span></td>
                             `;
                         });
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No attendance records yet</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No attendance records yet</td></tr>';
                     }
                 }
             } catch (error) {
@@ -1580,12 +2330,12 @@ AA:BB:CC:DD:EE:03</textarea>
                 const response = await fetch(`${API_URL}/admin/scholars`, {
                     headers: { 'Authorization': `Bearer ${authToken}` }
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
                     const tbody = document.getElementById('scholarsTableBody');
                     tbody.innerHTML = '';
-                    
+
                     if (data.scholars && data.scholars.length > 0) {
                         data.scholars.forEach(scholar => {
                             const row = tbody.insertRow();
@@ -1595,11 +2345,12 @@ AA:BB:CC:DD:EE:03</textarea>
                                 <td>${scholar.email}</td>
                                 <td>${scholar.department}</td>
                                 <td>${scholar.supervisor}</td>
+                                <td><span class="badge badge-info">${scholar.biometricType || 'Simulated'}</span></td>
                                 <td><span class="badge badge-success">${scholar.status}</span></td>
                             `;
                         });
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No scholars registered yet</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No scholars registered yet</td></tr>';
                     }
                 }
             } catch (error) {
@@ -1611,45 +2362,51 @@ AA:BB:CC:DD:EE:03</textarea>
         // Register scholar
         document.getElementById('registerScholarForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             if (!capturedBiometric) {
                 showNotification('Please capture biometric data first', 'error');
                 return;
             }
-            
+
+            const biometricType = document.querySelector('input[name="regBiometricType"]:checked').value;
+
             const scholarData = {
                 scholarId: document.getElementById('newScholarId').value,
                 name: document.getElementById('newScholarName').value,
                 email: document.getElementById('newScholarEmail').value,
                 department: document.getElementById('newScholarDept').value,
                 supervisor: document.getElementById('newScholarSupervisor').value,
-                biometricData: capturedBiometric
+                biometricData: capturedBiometric,
+                biometricType: biometricType === 'simulated' ? 'simulated' : 'real'
             };
-            
+
             try {
                 const response = await fetch(`${API_URL}/scholar/register`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}` // Make sure we have admin token
+                    },
                     body: JSON.stringify(scholarData)
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (response.ok) {
                     showNotification('Scholar registered successfully!', 'success');
                     document.getElementById('registerScholarForm').reset();
                     capturedBiometric = null;
-                    
+
                     // Show success modal
                     showModal('Registration Successful', `
-                        <div class="zkp-flow">
-                            <h4>Scholar registered with ZKP:</h4>
-                            <p><strong>Scholar ID:</strong> ${data.scholarId}</p>
-                            <p><strong>DID:</strong> ${data.did}</p>
-                            <p><strong>ZKP Public Key:</strong> ${data.zkpPublicKey}</p>
-                            <p style="margin-top: 20px;">The scholar can now use their biometric to mark attendance securely.</p>
-                        </div>
-                    `);
+                <div class="zkp-flow">
+                    <h4>Scholar registered with ZKP:</h4>
+                    <p><strong>Scholar ID:</strong> ${data.scholarId}</p>
+                    <p><strong>DID:</strong> ${data.did}</p>
+                    <p><strong>Biometric Type:</strong> ${data.biometricType}</p>
+                    <p style="margin-top: 20px;">The scholar can now use their biometric to mark attendance securely.</p>
+                </div>
+            `);
                 } else {
                     showNotification(data.error || 'Registration failed', 'error');
                 }
@@ -1665,19 +2422,19 @@ AA:BB:CC:DD:EE:03</textarea>
                 const response = await fetch(`${API_URL}/admin/attendance`, {
                     headers: { 'Authorization': `Bearer ${authToken}` }
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
                     const tbody = document.getElementById('attendanceTableBody');
                     tbody.innerHTML = '';
-                    
+
                     if (data.attendance && data.attendance.length > 0) {
                         data.attendance.forEach(record => {
                             const row = tbody.insertRow();
                             const checkIn = new Date(record.checkIn);
                             const checkOut = record.checkOut ? new Date(record.checkOut) : null;
                             const duration = record.duration ? record.duration.toFixed(2) + ' hrs' : '-';
-                            
+
                             row.innerHTML = `
                                 <td>${checkIn.toLocaleDateString()}</td>
                                 <td>${record.scholarId}</td>
@@ -1686,10 +2443,11 @@ AA:BB:CC:DD:EE:03</textarea>
                                 <td>${checkIn.toLocaleTimeString()}</td>
                                 <td>${checkOut ? checkOut.toLocaleTimeString() : '-'}</td>
                                 <td>${duration}</td>
+                                <td><span class="badge badge-info">${record.biometricType || 'Simulated'}</span></td>
                             `;
                         });
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No attendance records yet</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No attendance records yet</td></tr>';
                     }
                 }
             } catch (error) {
@@ -1709,31 +2467,31 @@ AA:BB:CC:DD:EE:03</textarea>
                 const response = await fetch(`${API_URL}/scholar/attendance-history`, {
                     headers: { 'Authorization': `Bearer ${authToken}` }
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
-                    
+
                     // Calculate stats
                     const totalDays = data.attendance.length;
                     let totalHours = 0;
                     let completedDays = 0;
-                    
+
                     data.attendance.forEach(record => {
                         if (record.duration > 0) {
                             totalHours += record.duration;
                             completedDays++;
                         }
                     });
-                    
+
                     const avgHours = completedDays > 0 ? (totalHours / completedDays).toFixed(2) : 0;
-                    
+
                     document.getElementById('scholarTotalDays').textContent = totalDays;
                     document.getElementById('scholarAvgHours').textContent = avgHours;
-                    
+
                     // Update attendance history
                     const tbody = document.getElementById('scholarAttendanceBody');
                     tbody.innerHTML = '';
-                    
+
                     if (data.attendance && data.attendance.length > 0) {
                         data.attendance.slice(0, 10).forEach(record => {
                             const row = tbody.insertRow();
@@ -1741,18 +2499,19 @@ AA:BB:CC:DD:EE:03</textarea>
                             const checkOut = record.checkOut ? new Date(record.checkOut) : null;
                             const duration = record.duration ? record.duration.toFixed(2) + ' hrs' : '-';
                             const status = record.checkOut ? 'Completed' : 'In Progress';
-                            
+
                             row.innerHTML = `
                                 <td>${checkIn.toLocaleDateString()}</td>
                                 <td>${checkIn.toLocaleTimeString()}</td>
                                 <td>${checkOut ? checkOut.toLocaleTimeString() : '-'}</td>
                                 <td>${duration}</td>
-                                <td>${record.location || 'Main Campus'}</td>
+                                <td>${record.location?.name || 'Main Campus'}</td>
+                                <td><span class="badge badge-info">${record.biometricType || 'Simulated'}</span></td>
                                 <td><span class="badge ${record.checkOut ? 'badge-success' : 'badge-warning'}">${status}</span></td>
                             `;
                         });
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No attendance history</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No attendance history</td></tr>';
                     }
                 }
             } catch (error) {
@@ -1761,25 +2520,21 @@ AA:BB:CC:DD:EE:03</textarea>
             }
         }
 
-        // Mark attendance
-        async function markAttendance() {
-            // This function is now replaced by the submit button
-            showNotification('Please follow the verification steps', 'info');
-        }
-
         // Submit attendance with location verification
         document.getElementById('submitAttendance').addEventListener('click', async () => {
             if (!locationVerified || !biometricCaptured) {
                 showNotification('Please complete all verification steps', 'error');
                 return;
             }
-            
+
             document.getElementById('step-verify').classList.add('active');
-            
+
             const submitBtn = document.getElementById('submitAttendance');
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<span class="loading"></span> Verifying with ZKP...';
-            
+
+            const biometricType = document.querySelector('input[name="attendanceBiometricType"]:checked').value;
+
             try {
                 // Send attendance request with location proof
                 const response = await fetch(`${API_URL}/attendance/mark`, {
@@ -1791,21 +2546,20 @@ AA:BB:CC:DD:EE:03</textarea>
                     body: JSON.stringify({
                         scholarId: currentUser.scholarId,
                         biometricData: capturedBiometric,
-                        location: locationData ? 
-                            `${findNearestBuilding(locationData.gps) || 'Main Campus'}` : 
-                            'Main Campus'
+                        location: locationData,
+                        biometricType: biometricType === 'simulated' ? 'simulated' : 'real'
                     })
                 });
-                
+
                 const result = await response.json();
-                
+
                 if (response.ok) {
                     document.getElementById('step-verify').classList.remove('active');
                     document.getElementById('step-verify').classList.add('completed');
-                    
+
                     submitBtn.innerHTML = '✅ Attendance Marked Successfully';
-                    showNotification(`${result.message}`, 'success');
-                    
+                    showNotification(`${result.message} (${result.biometricType}, ${result.zkpType})`, 'success');
+
                     // Reset for next attendance
                     setTimeout(() => {
                         resetAttendanceForm();
@@ -1828,15 +2582,15 @@ AA:BB:CC:DD:EE:03</textarea>
             biometricCaptured = false;
             locationData = null;
             capturedBiometric = null;
-            
+
             // Reset steps
             document.querySelectorAll('.step').forEach(step => {
                 step.classList.remove('active', 'completed');
             });
-            
+
             // Reset location status
             document.getElementById('locationStatus').className = 'location-status';
-            
+
             // Reset biometric scanner
             const scanner = document.getElementById('attendanceBiometric');
             scanner.classList.add('disabled');
@@ -1845,12 +2599,15 @@ AA:BB:CC:DD:EE:03</textarea>
                 <p>Location verification required first</p>
                 <small>Verify with biometric</small>
             `;
-            
+
+            // Hide biometric selection
+            document.getElementById('attendanceBiometricSelection').style.display = 'none';
+
             // Reset submit button
             const submitBtn = document.getElementById('submitAttendance');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Verify Location First';
-            
+
             // Start location verification again
             setTimeout(() => {
                 checkLocationPermissions();
@@ -1859,40 +2616,36 @@ AA:BB:CC:DD:EE:03</textarea>
 
         // Load ZKP logs
         async function loadZKPLogs() {
-            // Simulated ZKP logs
-            const logs = [
-                {
-                    timestamp: new Date().toISOString(),
-                    did: 'did:pramaan:a665a45920422f9d',
-                    purpose: 'attendance',
-                    proofHash: '0x' + Math.random().toString(36).substr(2, 16),
-                    status: 'verified'
-                },
-                {
-                    timestamp: new Date(Date.now() - 3600000).toISOString(),
-                    did: 'did:pramaan:97a6d21df7c51e82',
-                    purpose: 'registration',
-                    proofHash: '0x' + Math.random().toString(36).substr(2, 16),
-                    status: 'verified'
-                }
-            ];
-            
-            const tbody = document.getElementById('zkpLogsBody');
-            tbody.innerHTML = '';
-            
-            if (logs.length > 0) {
-                logs.forEach(log => {
-                    const row = tbody.insertRow();
-                    row.innerHTML = `
-                        <td>${new Date(log.timestamp).toLocaleString()}</td>
-                        <td title="${log.did}">${log.did.substring(0, 20)}...</td>
-                        <td>${log.purpose}</td>
-                        <td>${log.proofHash}</td>
-                        <td><span class="badge badge-success">${log.status}</span></td>
-                    `;
+            try {
+                const response = await fetch(`${API_URL}/admin/zkp-status`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
                 });
-            } else {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No ZKP logs yet</td></tr>';
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const tbody = document.getElementById('zkpLogsBody');
+                    tbody.innerHTML = '';
+
+                    if (data.recentLogs && data.recentLogs.length > 0) {
+                        data.recentLogs.forEach(log => {
+                            const row = tbody.insertRow();
+                            const proofType = log.isRealProof ? 'Real ZKP' : 'Simulated';
+                            row.innerHTML = `
+                                <td>${new Date(log.timestamp).toLocaleString()}</td>
+                                <td title="${log.scholarDid}">${log.scholarDid.substring(0, 20)}...</td>
+                                <td>${log.purpose}</td>
+                                <td>${log.proofHash.substring(0, 16)}...</td>
+                                <td><span class="badge ${log.isRealProof ? 'badge-success' : 'badge-warning'}">${proofType}</span></td>
+                                <td><span class="badge badge-success">${log.status}</span></td>
+                            `;
+                        });
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No ZKP logs yet</td></tr>';
+                    }
+                }
+            } catch (error) {
+                console.error('ZKP logs error:', error);
+                showNotification('Failed to load ZKP logs', 'error');
             }
         }
 
@@ -1902,20 +2655,20 @@ AA:BB:CC:DD:EE:03</textarea>
             const lng = parseFloat(document.getElementById('campusLng').value);
             const radius = parseInt(document.getElementById('campusRadius').value);
             const wifiMACs = document.getElementById('wifiMACs').value.split('\n').filter(mac => mac.trim());
-            
+
             // Update campus config
             CAMPUS_CONFIG.center = { lat, lng };
             CAMPUS_CONFIG.radius = radius;
-            
+
             // Save to localStorage
             localStorage.setItem('campusConfig', JSON.stringify({
                 center: { lat, lng },
                 radius,
                 wifiMACs
             }));
-            
+
             showNotification('Location settings saved successfully', 'success');
-            
+
             // Update map preview
             const mapDiv = document.getElementById('campusMap');
             mapDiv.innerHTML = `
@@ -1948,13 +2701,13 @@ AA:BB:CC:DD:EE:03</textarea>
                     // Update the input fields with current coordinates
                     document.getElementById('campusLat').value = position.coords.latitude.toFixed(6);
                     document.getElementById('campusLng').value = position.coords.longitude.toFixed(6);
-                    
+
                     // Reset button
                     btn.disabled = false;
                     btn.innerHTML = originalHTML;
-                    
+
                     showNotification('Current location detected successfully!', 'success');
-                    
+
                     // Show preview of detected location
                     const mapDiv = document.getElementById('campusMap');
                     mapDiv.innerHTML = `
@@ -1974,9 +2727,9 @@ AA:BB:CC:DD:EE:03</textarea>
                     // Reset button
                     btn.disabled = false;
                     btn.innerHTML = originalHTML;
-                    
+
                     let errorMessage = 'Failed to get current location';
-                    switch(error.code) {
+                    switch (error.code) {
                         case error.PERMISSION_DENIED:
                             errorMessage = 'Location access denied. Please allow location access.';
                             break;
@@ -2015,19 +2768,200 @@ AA:BB:CC:DD:EE:03</textarea>
             localStorage.removeItem('userRole');
             authToken = null;
             currentUser = null;
-            
+
+            // Stop any active camera streams
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+
             document.getElementById('loginPage').style.display = 'flex';
             document.getElementById('adminDashboard').style.display = 'none';
             document.getElementById('scholarDashboard').style.display = 'none';
-            
+
             showNotification('Logged out successfully', 'info');
         }
+
+        // Check browser support
+        function checkBrowserSupport() {
+            const hasWebAuthn = window.PublicKeyCredential && navigator.credentials;
+            const hasMediaDevices = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+
+            if (!hasWebAuthn || !hasMediaDevices) {
+                document.getElementById('browserSupportAlert').style.display = 'block';
+            }
+
+            // Update biometric options based on support
+            if (!hasWebAuthn) {
+                document.querySelectorAll('input[value="fingerprint"]').forEach(input => {
+                    input.disabled = true;
+                    input.closest('.biometric-option').style.opacity = '0.5';
+                });
+            }
+
+            if (!hasMediaDevices) {
+                document.querySelectorAll('input[value="face"]').forEach(input => {
+                    input.disabled = true;
+                    input.closest('.biometric-option').style.opacity = '0.5';
+                });
+            }
+        }
+
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            const timeElements = document.querySelectorAll('#currentTime');
+            timeElements.forEach(el => {
+                if (el) el.textContent = now.toLocaleString();
+            });
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        // Toggle login form
+        function toggleLoginForm() {
+            const loginType = document.getElementById('loginType').value;
+            const adminForm = document.getElementById('adminLoginForm');
+            const scholarForm = document.getElementById('scholarLoginForm');
+
+            if (loginType === 'admin') {
+                adminForm.style.display = 'block';
+                scholarForm.style.display = 'none';
+            } else {
+                adminForm.style.display = 'none';
+                scholarForm.style.display = 'block';
+                checkBrowserSupport();
+            }
+        }
+
+        // Show notification
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type} show`;
+
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 4000);
+        }
+
+        // Admin login
+        document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const username = document.getElementById('adminUsername').value;
+            const password = document.getElementById('adminPassword').value;
+
+            try {
+                const response = await fetch(`${API_URL}/admin/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.token;
+                    currentUser = data.admin;
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('userRole', 'admin');
+
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('adminDashboard').style.display = 'block';
+                    document.getElementById('adminName').textContent = currentUser.username;
+
+                    showNotification('Login successful!', 'success');
+                    loadDashboard();
+                } else {
+                    showNotification(data.error || 'Login failed', 'error');
+                }
+            } catch (error) {
+                showNotification('Connection error', 'error');
+            }
+        });
+
+        // Scholar login
+        document.getElementById('scholarLoginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const scholarId = document.getElementById('scholarId').value;
+            const biometricType = document.querySelector('input[name="loginBiometricType"]:checked').value;
+
+            if (!capturedBiometric && biometricType === 'simulated') {
+                showNotification('Please scan your biometric first', 'error');
+                return;
+            }
+
+            try {
+                let loginData = {
+                    scholarId,
+                    biometricType: biometricType === 'simulated' ? 'simulated' : 'real'
+                };
+
+                if (biometricType === 'fingerprint') {
+                    // Use WebAuthn authentication
+                    const authResult = await biometricHandler.authenticateFingerprint(scholarId);
+                    authToken = authResult.token;
+                    currentUser = authResult.scholar;
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('userRole', 'scholar');
+
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('scholarDashboard').style.display = 'block';
+                    document.getElementById('scholarName').textContent = currentUser.name;
+
+                    showNotification('Login successful!', 'success');
+                    loadScholarDashboard();
+
+                    // Start location verification after login
+                    setTimeout(() => {
+                        checkLocationPermissions();
+                    }, 1000);
+                    return;
+                } else {
+                    loginData.biometricData = capturedBiometric || { type: biometricType };
+                }
+
+                const response = await fetch(`${API_URL}/scholar/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(loginData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.token;
+                    currentUser = data.scholar;
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('userRole', 'scholar');
+
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('scholarDashboard').style.display = 'block';
+                    document.getElementById('scholarName').textContent = currentUser.name;
+
+                    showNotification('Login successful!', 'success');
+                    loadScholarDashboard();
+
+                    // Start location verification after login
+                    setTimeout(() => {
+                        checkLocationPermissions();
+                    }, 1000);
+                } else {
+                    showNotification(data.error || 'Login failed', 'error');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showNotification(error.message || 'Connection error', 'error');
+            }
+        });
 
         // Check existing session
         window.addEventListener('load', () => {
             const savedToken = localStorage.getItem('authToken');
             const userRole = localStorage.getItem('userRole');
-            
+
             // Load saved campus config
             const savedConfig = localStorage.getItem('campusConfig');
             if (savedConfig) {
@@ -2035,10 +2969,10 @@ AA:BB:CC:DD:EE:03</textarea>
                 CAMPUS_CONFIG.center = config.center;
                 CAMPUS_CONFIG.radius = config.radius;
             }
-            
+
             if (savedToken) {
                 authToken = savedToken;
-                
+
                 if (userRole === 'admin') {
                     document.getElementById('loginPage').style.display = 'none';
                     document.getElementById('adminDashboard').style.display = 'block';
@@ -2053,15 +2987,26 @@ AA:BB:CC:DD:EE:03</textarea>
                     }, 1000);
                 }
             }
+
+            // Check browser support
+            checkBrowserSupport();
         });
 
         // Close modal on outside click
-        window.onclick = function(event) {
+        window.onclick = function (event) {
             const modal = document.getElementById('modal');
             if (event.target === modal) {
                 closeModal();
             }
         }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+        });
     </script>
 </body>
+
 </html>
