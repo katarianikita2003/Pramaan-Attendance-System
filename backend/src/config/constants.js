@@ -1,42 +1,28 @@
-// ===== backend/src/config/constants.js =====
 export const CONSTANTS = {
   // JWT
-  JWT_EXPIRES_IN: '30d',
-  JWT_REFRESH_EXPIRES_IN: '90d',
+  JWT_EXPIRES_IN: '7d',
+  JWT_REFRESH_EXPIRES_IN: '30d',
   
-  // Rate limiting
+  // Rate Limiting
   RATE_LIMIT_WINDOW: 15 * 60 * 1000, // 15 minutes
   RATE_LIMIT_MAX_REQUESTS: 100,
   AUTH_RATE_LIMIT_MAX: 5,
   
-  // File upload
-  MAX_FILE_SIZE: 10 * 1024 * 1024, // 10MB
-  ALLOWED_FILE_TYPES: ['image/jpeg', 'image/png', 'application/pdf'],
-  
-  // Biometric
-  BIOMETRIC_SALT_ROUNDS: 12,
-  FINGERPRINT_MIN_QUALITY: 0.7,
-  FACE_MIN_QUALITY: 0.8,
-  LIVENESS_THRESHOLD: 0.9,
-  
-  // Location
-  DEFAULT_CAMPUS_RADIUS: 500, // meters
-  LOCATION_ACCURACY_THRESHOLD: 50, // meters
+  // File Upload
+  MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
+  ALLOWED_FILE_TYPES: ['image/jpeg', 'image/png', 'image/webp'],
   
   // ZKP
+  ZKP_CIRCUIT_PATH: './src/zkp/circuits',
   ZKP_PROOF_EXPIRY: 5 * 60 * 1000, // 5 minutes
-  FIELD_SIZE: BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617'),
   
-  // Organization
-  ORGANIZATION_TYPES: ['university', 'school', 'college', 'office', 'other'],
-  DEFAULT_WORKING_HOURS: { start: '09:00', end: '18:00' },
+  // Attendance
+  ATTENDANCE_WINDOW: 30 * 60 * 1000, // 30 minutes
+  LATE_THRESHOLD: 15 * 60 * 1000, // 15 minutes
   
-  // Subscription plans
-  SUBSCRIPTION_PLANS: {
-    basic: { maxScholars: 100, features: ['basic'] },
-    pro: { maxScholars: 1000, features: ['basic', 'analytics', 'api'] },
-    enterprise: { maxScholars: -1, features: ['all'] }
-  }
+  // Location
+  DEFAULT_LOCATION_RADIUS: 500, // meters
+  LOCATION_ACCURACY_THRESHOLD: 50, // meters
 };
 
 export const corsOptions = {
@@ -50,4 +36,17 @@ export const corsOptions = {
   },
   credentials: true,
   optionsSuccessStatus: 200
+};
+
+export const ERROR_CODES = {
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  AUTHENTICATION_ERROR: 'AUTHENTICATION_ERROR',
+  AUTHORIZATION_ERROR: 'AUTHORIZATION_ERROR',
+  NOT_FOUND: 'NOT_FOUND',
+  DUPLICATE_ENTRY: 'DUPLICATE_ENTRY',
+  RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
+  ZKP_GENERATION_FAILED: 'ZKP_GENERATION_FAILED',
+  ZKP_VERIFICATION_FAILED: 'ZKP_VERIFICATION_FAILED',
+  BIOMETRIC_MISMATCH: 'BIOMETRIC_MISMATCH',
+  LOCATION_OUTSIDE_BOUNDS: 'LOCATION_OUTSIDE_BOUNDS',
 };
