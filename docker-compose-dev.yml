@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: pramaan-mongodb-dev
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: pramaan-attendance
+    volumes:
+      - mongodb_dev_data:/data/db
+    networks:
+      - pramaan-dev
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: pramaan-backend-dev
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: development
+      MONGODB_URI: mongodb://mongodb:27017/pramaan-attendance
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      - mongodb
+    networks:
+      - pramaan-dev
+    command: npm run dev
+
+volumes:
+  mongodb_dev_data:
+
+networks:
+  pramaan-dev:
+    driver: bridge
