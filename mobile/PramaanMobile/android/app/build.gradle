@@ -1,10 +1,7 @@
 apply plugin: "com.android.application"
-
 android {
     namespace "com.pramaanmobile"
     compileSdkVersion 34
-    buildToolsVersion "34.0.0"
-
     defaultConfig {
         applicationId "com.pramaanmobile"
         minSdkVersion 24
@@ -12,37 +9,11 @@ android {
         versionCode 1
         versionName "1.0"
     }
-
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
-
-    signingConfigs {
-        debug {
-            storeFile file("debug.keystore")
-            storePassword "android"
-            keyAlias "androiddebugkey"
-            keyPassword "android"
-        }
-    }
-
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
-            signingConfig signingConfigs.debug
-        }
-        debug {
-            signingConfig signingConfigs.debug
-        }
-    }
-
-    packagingOptions {
-        exclude "META-INF/*"
-    }
 }
-
 dependencies {
     implementation fileTree(dir: "libs", include: ["*.jar"])
     implementation "androidx.appcompat:appcompat:1.6.1"

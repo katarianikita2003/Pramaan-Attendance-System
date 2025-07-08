@@ -1,82 +1,88 @@
-// ===== backend/src/middleware/auth.middleware.js =====
+// backend/src/middleware/auth.middleware.js
 import jwt from 'jsonwebtoken';
-import Organization from '../models/Organization.js';
-import Scholar from '../models/Scholar.js';
 import logger from '../utils/logger.js';
 
-export const authenticateToken = async (req, res, next) => {
+export const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
   try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) {
-      return res.status(401).json({ error: 'Access token required' });
-    }
-
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
-
-    // Verify user still exists and is active
-    if (decoded.role === 'admin') {
-      const organization = await Organization.findById(decoded.organizationId);
-      if (!organization || !organization.isActive) {
-        return res.status(401).json({ error: 'Invalid organization' });
-      }
-      req.organization = organization;
-    } else if (decoded.role === 'scholar') {
-      const scholar = await Scholar.findById(decoded.scholarId);
-      if (!scholar || !scholar.status.isActive) {
-        return res.status(401).json({ error: 'Invalid scholar account' });
-      }
-      req.scholar = scholar;
-    }
-
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired' });
-    } else if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid token' });
     }
-    
-    logger.error('Authentication error:', error);
-    return res.status(500).json({ error: 'Authentication failed' });
+    logger.error('Token verification error:', error);
+    return res.status(403).json({ error: 'Invalid token' });
   }
 };
 
-export const requireRole = (roles) => {
+export const requireRole = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const userRole = req.user.role;
-    const allowedRoles = Array.isArray(roles) ? roles : [roles];
-
-    if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ 
+        error: 'Insufficient permissions',
+        required: roles,
+        current: req.user.role
+      });
     }
 
     next();
   };
 };
 
-export const requireActiveSubscription = async (req, res, next) => {
-  try {
-    if (!req.organization) {
-      return res.status(400).json({ error: 'Organization context required' });
+export const requirePermission = (...permissions) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (!req.organization.isSubscriptionValid()) {
+    const userPermissions = req.user.permissions || [];
+    
+    if (userPermissions.includes('all')) {
+      return next();
+    }
+
+    const hasPermission = permissions.some(permission => 
+      userPermissions.includes(permission)
+    );
+
+    if (!hasPermission) {
       return res.status(403).json({ 
-        error: 'Subscription expired', 
-        details: 'Please renew your subscription to continue'
+        error: 'Insufficient permissions',
+        required: permissions
       });
     }
 
     next();
-  } catch (error) {
-    logger.error('Subscription check error:', error);
-    return res.status(500).json({ error: 'Failed to verify subscription' });
+  };
+};
+
+export const optionalAuth = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return next();
   }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+  } catch (error) {
+    // Invalid token, but continue without auth
+    logger.debug('Optional auth token invalid:', error.message);
+  }
+
+  next();
 };

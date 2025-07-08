@@ -1,8 +1,7 @@
-// ===== backend/src/models/Scholar.js =====
+// backend/src/models/Scholar.js
 import mongoose from 'mongoose';
-import crypto from 'crypto';
 
-const ScholarSchema = new mongoose.Schema({
+const scholarSchema = new mongoose.Schema({
   organizationId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Organization',
@@ -12,7 +11,6 @@ const ScholarSchema = new mongoose.Schema({
   scholarId: {
     type: String,
     required: true,
-    trim: true,
     uppercase: true
   },
   personalInfo: {
@@ -24,175 +22,156 @@ const ScholarSchema = new mongoose.Schema({
     email: {
       type: String,
       required: true,
-      lowercase: true,
-      trim: true
+      lowercase: true
     },
-    phone: {
-      type: String,
-      trim: true
-    },
+    phone: String,
     dateOfBirth: Date,
-    gender: {
-      type: String,
-      enum: ['male', 'female', 'other', 'prefer-not-to-say']
-    },
-    photo: String
+    profileImage: String
   },
   academicInfo: {
     department: String,
     course: String,
-    year: Number,
+    batch: String,
     semester: Number,
-    supervisor: String,
-    enrollmentDate: Date,
-    expectedGraduation: Date
+    rollNumber: String
   },
   biometricData: {
-    enrollmentStatus: {
-      fingerprint: { type: Boolean, default: false },
-      face: { type: Boolean, default: false }
+    faceCommitment: {
+      type: String,
+      unique: true,
+      sparse: true
     },
-    commitments: {
-      fingerprint: String,
-      face: String,
-      combined: String
-    },
-    salts: {
-      type: String, // Encrypted
-      select: false
+    fingerprintCommitment: {
+      type: String,
+      unique: true,
+      sparse: true
     },
     globalHash: {
       type: String,
       unique: true,
-      sparse: true,
-      select: false
-    },
-    lastUpdated: Date,
-    deviceInfo: {
-      model: String,
-      os: String,
-      appVersion: String
-    }
-  },
-  zkpData: {
-    publicKey: {
-      type: String,
       required: true
     },
-    keyGenerationDate: {
+    did: {
+      type: String,
+      unique: true,
+      required: true
+    },
+    salts: {
+      face: String,
+      fingerprint: String
+    },
+    registeredAt: {
       type: Date,
       default: Date.now
-    },
-    proofCount: {
+    }
+  },
+  attendance: {
+    totalDays: {
       type: Number,
       default: 0
-    }
-  },
-  attendanceStats: {
-    totalDays: { type: Number, default: 0 },
-    presentDays: { type: Number, default: 0 },
-    absentDays: { type: Number, default: 0 },
-    lateDays: { type: Number, default: 0 },
-    averageCheckInTime: String,
-    averageWorkDuration: Number, // hours
-    lastAttendance: Date,
-    currentStreak: { type: Number, default: 0 },
-    longestStreak: { type: Number, default: 0 }
-  },
-  settings: {
-    notifications: {
-      email: { type: Boolean, default: true },
-      push: { type: Boolean, default: true },
-      sms: { type: Boolean, default: false }
     },
-    privacy: {
-      showProfile: { type: Boolean, default: true },
-      showStats: { type: Boolean, default: true }
-    }
+    presentDays: {
+      type: Number,
+      default: 0
+    },
+    lateDays: {
+      type: Number,
+      default: 0
+    },
+    absentDays: {
+      type: Number,
+      default: 0
+    },
+    percentage: {
+      type: Number,
+      default: 0
+    },
+    lastCheckedIn: Date
   },
   status: {
-    isActive: { type: Boolean, default: true },
-    isGraduated: { type: Boolean, default: false },
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    verificationStatus: {
+      type: String,
+      enum: ['pending', 'verified', 'rejected'],
+      default: 'verified'
+    },
     suspendedUntil: Date,
     suspensionReason: String
   },
-  metadata: {
-    createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now },
-    createdBy: String,
-    lastModifiedBy: String,
-    loginAttempts: { type: Number, default: 0 },
-    lastLoginAttempt: Date,
-    deviceTokens: [String]
+  devices: [{
+    deviceId: String,
+    deviceName: String,
+    platform: String,
+    lastUsed: Date,
+    isActive: Boolean
+  }],
+  notifications: {
+    fcmToken: String,
+    preferences: {
+      attendance: {
+        type: Boolean,
+        default: true
+      },
+      announcements: {
+        type: Boolean,
+        default: true
+      }
+    }
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
 });
 
-// Compound indexes
-ScholarSchema.index({ organizationId: 1, scholarId: 1 }, { unique: true });
-ScholarSchema.index({ organizationId: 1, 'personalInfo.email': 1 }, { unique: true });
-ScholarSchema.index({ organizationId: 1, 'status.isActive': 1 });
-ScholarSchema.index({ 'attendanceStats.lastAttendance': -1 });
-
-// Virtual fields
-ScholarSchema.virtual('attendancePercentage').get(function() {
-  if (this.attendanceStats.totalDays === 0) return 0;
-  return (this.attendanceStats.presentDays / this.attendanceStats.totalDays * 100).toFixed(2);
-});
-
-ScholarSchema.virtual('fullName').get(function() {
-  return this.personalInfo.name;
-});
+// Compound unique index
+scholarSchema.index({ organizationId: 1, scholarId: 1 }, { unique: true });
+scholarSchema.index({ organizationId: 1, 'personalInfo.email': 1 }, { unique: true });
 
 // Methods
-ScholarSchema.methods.generateZKPKeys = function() {
-  this.zkpData.publicKey = crypto.randomBytes(32).toString('hex');
-  this.zkpData.keyGenerationDate = new Date();
-};
-
-ScholarSchema.methods.updateAttendanceStats = function(type) {
-  this.attendanceStats.totalDays++;
+scholarSchema.methods.canMarkAttendance = function() {
+  if (!this.status.isActive) return false;
+  if (this.status.suspendedUntil && this.status.suspendedUntil > Date.now()) return false;
   
-  if (type === 'present') {
-    this.attendanceStats.presentDays++;
-    this.attendanceStats.currentStreak++;
-    if (this.attendanceStats.currentStreak > this.attendanceStats.longestStreak) {
-      this.attendanceStats.longestStreak = this.attendanceStats.currentStreak;
+  // Check if already marked today
+  if (this.attendance.lastCheckedIn) {
+    const lastCheckin = new Date(this.attendance.lastCheckedIn);
+    const today = new Date();
+    if (lastCheckin.toDateString() === today.toDateString()) {
+      return false;
     }
-  } else if (type === 'absent') {
-    this.attendanceStats.absentDays++;
-    this.attendanceStats.currentStreak = 0;
-  } else if (type === 'late') {
-    this.attendanceStats.presentDays++;
-    this.attendanceStats.lateDays++;
   }
   
-  this.attendanceStats.lastAttendance = new Date();
+  return true;
 };
 
-ScholarSchema.methods.isEligibleForAttendance = function() {
-  return this.status.isActive && 
-         !this.status.isGraduated && 
-         (!this.status.suspendedUntil || this.status.suspendedUntil < new Date());
+scholarSchema.methods.updateAttendanceStats = function(status) {
+  this.attendance.totalDays += 1;
+  
+  switch(status) {
+    case 'present':
+      this.attendance.presentDays += 1;
+      break;
+    case 'late':
+      this.attendance.presentDays += 1;
+      this.attendance.lateDays += 1;
+      break;
+    case 'absent':
+      this.attendance.absentDays += 1;
+      break;
+  }
+  
+  this.attendance.percentage = (this.attendance.presentDays / this.attendance.totalDays) * 100;
+  this.attendance.lastCheckedIn = new Date();
+  
+  return this.save();
 };
 
-// Statics
-ScholarSchema.statics.checkBiometricUniqueness = async function(globalHash) {
-  const existing = await this.findOne({ 'biometricData.globalHash': globalHash });
-  return !existing;
-};
-
-ScholarSchema.statics.getActiveScholarsCount = async function(organizationId) {
-  return await this.countDocuments({ 
-    organizationId, 
-    'status.isActive': true,
-    'status.isGraduated': false
-  });
-};
-
-// Pre-save middleware
-ScholarSchema.pre('save', function(next) {
-  this.metadata.updatedAt = new Date();
-  next();
-});
-
-export default mongoose.model('Scholar', ScholarSchema);
+export default mongoose.model('Scholar', scholarSchema);

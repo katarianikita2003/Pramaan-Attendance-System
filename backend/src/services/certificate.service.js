@@ -1,95 +1,206 @@
+// backend/src/services/certificate.service.js
+import QRCode from 'qrcode';
 import PDFDocument from 'pdfkit';
 import fs from 'fs/promises';
 import path from 'path';
-import QRCode from 'qrcode';
+import { fileURLToPath } from 'url';
 import logger from '../utils/logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class CertificateService {
   constructor() {
-    this.certificatesDir = process.env.CERTIFICATES_DIR || './certificates';
+    this.certificateDir = path.join(__dirname, '../../certificates');
   }
 
-  async generateAttendanceCertificate(attendanceData) {
+  /**
+   * Generate attendance certificate
+   */
+  async generateCertificate(attendanceProof, scholar, organization) {
     try {
+      const certificateId = `CERT-${Date.now()}-${attendanceProof._id}`;
+      const filename = `${certificateId}.pdf`;
+      const filepath = path.join(this.certificateDir, filename);
+
+      // Ensure directory exists
+      await fs.mkdir(this.certificateDir, { recursive: true });
+
+      // Create PDF
       const doc = new PDFDocument({
         size: 'A4',
-        margins: { top: 50, bottom: 50, left: 50, right: 50 }
+        margin: 50
       });
 
-      const filename = `attendance_${attendanceData.scholarId}_${Date.now()}.pdf`;
-      const filepath = path.join(this.certificatesDir, filename);
+      // Stream to file
+      const stream = doc.pipe(fs.createWriteStream(filepath));
 
-      // Create write stream
-      const stream = fs.createWriteStream(filepath);
-      doc.pipe(stream);
+      // Add content
+      this.addCertificateContent(doc, {
+        certificateId,
+        attendanceProof,
+        scholar,
+        organization
+      });
 
-      // Add header
-      doc.fontSize(24)
-         .font('Helvetica-Bold')
-         .text('ATTENDANCE CERTIFICATE', { align: 'center' });
-      
-      doc.moveDown();
-      
-      // Add logo placeholder
-      doc.rect(250, 100, 100, 100).stroke();
-      
-      doc.moveDown(6);
-      
-      // Certificate content
-      doc.fontSize(12)
-         .font('Helvetica')
-         .text(`This is to certify that`, { align: 'center' });
-      
-      doc.fontSize(16)
-         .font('Helvetica-Bold')
-         .text(attendanceData.scholarName, { align: 'center' });
-      
-      doc.fontSize(12)
-         .font('Helvetica')
-         .text(`Scholar ID: ${attendanceData.scholarId}`, { align: 'center' });
-      
-      doc.moveDown();
-      
-      doc.text(`Has marked attendance on ${attendanceData.date}`, { align: 'center' });
-      doc.text(`Check-in: ${attendanceData.checkIn}`, { align: 'center' });
-      doc.text(`Check-out: ${attendanceData.checkOut || 'Not marked'}`, { align: 'center' });
-      
-      // Add QR code
+      // Generate QR code
       const qrData = {
-        certificateId: filename,
-        scholarId: attendanceData.scholarId,
-        date: attendanceData.date,
-        proofHash: attendanceData.proofHash
+        certificateId,
+        proofHash: attendanceProof.proofData.proofHash,
+        date: attendanceProof.metadata.date,
+        verifyUrl: `${process.env.BASE_URL}/verify/${certificateId}`
       };
-      
+
       const qrCode = await QRCode.toDataURL(JSON.stringify(qrData));
-      doc.image(qrCode, 250, 400, { width: 100, height: 100 });
       
-      // Add footer
-      doc.fontSize(10)
-         .text('Verified by Zero-Knowledge Proof', 50, 700, { align: 'center' });
-      doc.text(`Certificate ID: ${filename}`, { align: 'center' });
-      
+      // Add QR code to PDF
+      doc.image(qrCode, 400, 600, { width: 150 });
+
       // Finalize PDF
       doc.end();
-      
+
       await new Promise((resolve) => stream.on('finish', resolve));
-      
-      logger.info(`Certificate generated: ${filename}`);
-      return { filename, filepath };
+
+      logger.info(`Certificate generated: ${certificateId}`);
+
+      return {
+        certificateId,
+        filename,
+        qrCode,
+        url: `/certificates/${filename}`
+      };
+
     } catch (error) {
       logger.error('Certificate generation failed:', error);
       throw error;
     }
   }
 
+  /**
+   * Add content to certificate PDF
+   */
+  addCertificateContent(doc, data) {
+    const { certificateId, attendanceProof, scholar, organization } = data;
+
+    // Header
+    doc.fontSize(24)
+       .font('Helvetica-Bold')
+       .text('ATTENDANCE CERTIFICATE', { align: 'center' });
+
+    doc.moveDown();
+    
+    // Organization name
+    doc.fontSize(18)
+       .text(organization.name, { align: 'center' });
+
+    doc.moveDown(2);
+
+    // Certificate ID
+    doc.fontSize(10)
+       .font('Helvetica')
+       .text(`Certificate ID: ${certificateId}`, { align: 'right' });
+
+    doc.moveDown();
+
+    // Main content
+    doc.fontSize(12)
+       .text('This is to certify that', { align: 'center' });
+
+    doc.moveDown();
+    
+    doc.fontSize(16)
+       .font('Helvetica-Bold')
+       .text(scholar.personalInfo.name, { align: 'center' });
+
+    doc.moveDown();
+    
+    doc.fontSize(12)
+       .font('Helvetica')
+       .text(`Scholar ID: ${scholar.scholarId}`, { align: 'center' });
+
+    if (scholar.academicInfo.department) {
+      doc.text(`Department: ${scholar.academicInfo.department}`, { align: 'center' });
+    }
+
+    doc.moveDown(2);
+
+    // Attendance details
+    const attendanceDate = new Date(attendanceProof.metadata.date);
+    const checkInTime = new Date(attendanceProof.metadata.checkInTime);
+
+    doc.text('Has marked their attendance on', { align: 'center' });
+    doc.moveDown();
+    
+    doc.font('Helvetica-Bold')
+       .text(attendanceDate.toLocaleDateString('en-US', {
+         weekday: 'long',
+         year: 'numeric',
+         month: 'long',
+         day: 'numeric'
+       }), { align: 'center' });
+
+    doc.moveDown();
+    
+    doc.font('Helvetica')
+       .text(`Check-in Time: ${checkInTime.toLocaleTimeString('en-US', {
+         hour: '2-digit',
+         minute: '2-digit'
+       })}`, { align: 'center' });
+
+    doc.text(`Status: ${attendanceProof.metadata.status.toUpperCase()}`, { align: 'center' });
+
+    if (attendanceProof.metadata.location.campus) {
+      doc.text(`Campus: ${attendanceProof.metadata.location.campus}`, { align: 'center' });
+    }
+
+    doc.moveDown(3);
+
+    // Verification
+    doc.fontSize(10)
+       .text('This certificate is cryptographically verified using Zero-Knowledge Proof', 
+             { align: 'center' });
+    
+    doc.moveDown();
+    
+    doc.text(`Proof Hash: ${attendanceProof.proofData.proofHash.substring(0, 32)}...`, 
+             { align: 'center' });
+
+    doc.moveDown(3);
+
+    // Footer
+    doc.fontSize(8)
+       .text('Scan the QR code below to verify this certificate', { align: 'center' });
+  }
+
+  /**
+   * Verify certificate
+   */
   async verifyCertificate(certificateId) {
     try {
-      const filepath = path.join(this.certificatesDir, certificateId);
-      await fs.access(filepath);
-      return { valid: true, exists: true };
+      // In production, this would check against blockchain or database
+      // For MVP, we'll do basic validation
+      
+      const filename = `${certificateId}.pdf`;
+      const filepath = path.join(this.certificateDir, filename);
+
+      try {
+        await fs.access(filepath);
+        return {
+          valid: true,
+          certificateId,
+          message: 'Certificate is valid'
+        };
+      } catch {
+        return {
+          valid: false,
+          certificateId,
+          message: 'Certificate not found'
+        };
+      }
+
     } catch (error) {
-      return { valid: false, exists: false };
+      logger.error('Certificate verification failed:', error);
+      throw error;
     }
   }
 }

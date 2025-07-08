@@ -1,4 +1,4 @@
-// ===== backend/src/middleware/logger.middleware.js =====
+// backend/src/middleware/logger.middleware.js
 import logger from '../utils/logger.js';
 
 export const requestLogger = (req, res, next) => {
@@ -12,18 +12,20 @@ export const requestLogger = (req, res, next) => {
     ip: req.ip,
     userAgent: req.get('user-agent')
   });
-  
+
   // Log response
   res.on('finish', () => {
     const duration = Date.now() - start;
+    
     logger.info({
       type: 'response',
       method: req.method,
       url: req.url,
       status: res.statusCode,
-      duration: `${duration}ms`
+      duration: `${duration}ms`,
+      contentLength: res.get('content-length')
     });
   });
-  
+
   next();
 };

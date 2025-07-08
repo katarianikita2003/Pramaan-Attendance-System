@@ -1,6 +1,7 @@
+// backend/src/models/Organization.js
 import mongoose from 'mongoose';
 
-const OrganizationSchema = new mongoose.Schema({
+const organizationSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
@@ -11,89 +12,126 @@ const OrganizationSchema = new mongoose.Schema({
     required: true,
     unique: true,
     uppercase: true,
-    trim: true
+    index: true
   },
   type: {
     type: String,
-    enum: ['university', 'school', 'corporate', 'government'],
-    required: true
+    enum: ['educational', 'corporate', 'government', 'other'],
+    default: 'educational'
   },
-  admin: {
-    name: String,
+  contact: {
     email: {
       type: String,
       required: true,
       lowercase: true
     },
-    phone: String
+    phone: String,
+    address: String
   },
-  address: {
-    street: String,
-    city: String,
-    state: String,
-    country: String,
-    zipCode: String
-  },
-  settings: {
-    locationBounds: {
-      center: {
+  location: {
+    coordinates: {
+      latitude: Number,
+      longitude: Number
+    },
+    radius: {
+      type: Number,
+      default: 500 // meters
+    },
+    campuses: [{
+      name: String,
+      coordinates: {
         latitude: Number,
         longitude: Number
       },
-      radius: { type: Number, default: 500 } // meters
-    },
-    workingHours: {
-      start: { type: String, default: '09:00' },
-      end: { type: String, default: '18:00' }
-    },
-    attendanceRules: {
-      allowLateCheckIn: { type: Number, default: 15 }, // minutes
-      allowEarlyCheckOut: { type: Number, default: 15 }, // minutes
-      minimumWorkHours: { type: Number, default: 8 },
-      overtimeThreshold: { type: Number, default: 9 }
-    },
-    biometricRequirements: {
-      fingerprintRequired: { type: Boolean, default: true },
-      faceRequired: { type: Boolean, default: false },
-      multiFactorRequired: { type: Boolean, default: false }
-    }
+      radius: Number
+    }]
   },
   subscription: {
     plan: {
       type: String,
-      enum: ['free', 'basic', 'pro', 'enterprise'],
+      enum: ['free', 'basic', 'professional', 'enterprise'],
       default: 'free'
     },
-    status: {
-      type: String,
-      enum: ['active', 'inactive', 'suspended'],
-      default: 'active'
+    scholarLimit: {
+      type: Number,
+      default: 50
+    },
+    currentCount: {
+      type: Number,
+      default: 0
     },
     startDate: Date,
     endDate: Date,
-    maxScholars: { type: Number, default: 50 }
+    status: {
+      type: String,
+      enum: ['active', 'expired', 'suspended'],
+      default: 'active'
+    }
   },
-  stats: {
-    totalScholars: { type: Number, default: 0 },
-    activeScholars: { type: Number, default: 0 },
-    totalAttendanceRecords: { type: Number, default: 0 }
+  settings: {
+    attendanceWindow: {
+      start: {
+        type: String,
+        default: '08:00'
+      },
+      end: {
+        type: String,
+        default: '10:00'
+      }
+    },
+    lateThreshold: {
+      type: Number,
+      default: 15 // minutes
+    },
+    requireLocation: {
+      type: Boolean,
+      default: true
+    },
+    allowMultipleCheckIns: {
+      type: Boolean,
+      default: false
+    }
   },
-  metadata: {
-    createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now },
-    lastModifiedBy: String
+  branding: {
+    logo: String,
+    primaryColor: {
+      type: String,
+      default: '#1976D2'
+    }
   },
-  isActive: { type: Boolean, default: true }
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
 });
 
 // Methods
-OrganizationSchema.methods.isSubscriptionValid = function() {
-  return this.subscription.status === 'active' && 
-         (!this.subscription.endDate || this.subscription.endDate > new Date());
+organizationSchema.methods.canAddMoreScholars = function() {
+  return this.subscription.currentCount < this.subscription.scholarLimit;
 };
 
-OrganizationSchema.methods.canAddMoreScholars = function() {
-  return this.stats.totalScholars < this.subscription.maxScholars;
+organizationSchema.methods.incrementScholarCount = function() {
+  this.subscription.currentCount += 1;
+  return this.save();
 };
 
-export default mongoose.model('Organization', OrganizationSchema);
+organizationSchema.methods.isWithinAttendanceWindow = function() {
+  const now = new Date();
+  const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  return currentTime >= this.settings.attendanceWindow.start && 
+         currentTime <= this.settings.attendanceWindow.end;
+};
+
+// Indexes
+organizationSchema.index({ 'contact.email': 1 });
+organizationSchema.index({ createdAt: -1 });
+
+export default mongoose.model('Organization', organizationSchema);

@@ -1,226 +1,150 @@
-// ===== backend/src/models/AttendanceProof.js =====
+// backend/src/models/AttendanceProof.js
 import mongoose from 'mongoose';
 
-const AttendanceProofSchema = new mongoose.Schema({
-  scholarId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Scholar',
-    required: true,
-    index: true
-  },
+const attendanceProofSchema = new mongoose.Schema({
   organizationId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Organization',
     required: true,
     index: true
   },
-  date: {
-    type: Date,
+  scholarId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Scholar',
     required: true,
     index: true
   },
-  checkIn: {
-    timestamp: {
+  proofData: {
+    zkProof: {
+      type: String,
+      required: true
+    },
+    publicInputs: {
+      did: String,
+      timestamp: Number,
+      location: {
+        latitude: Number,
+        longitude: Number
+      }
+    },
+    verificationKey: String,
+    proofHash: {
+      type: String,
+      unique: true,
+      required: true
+    }
+  },
+  metadata: {
+    date: {
+      type: Date,
+      required: true,
+      index: true
+    },
+    checkInTime: {
       type: Date,
       required: true
     },
+    status: {
+      type: String,
+      enum: ['present', 'late', 'absent'],
+      default: 'present'
+    },
     location: {
-      latitude: Number,
-      longitude: Number,
+      coordinates: {
+        latitude: Number,
+        longitude: Number
+      },
       accuracy: Number,
-      address: String
+      address: String,
+      campus: String
     },
-    zkProof: {
-      protocol: { type: String, default: 'groth16' },
-      curve: { type: String, default: 'bn128' },
-      proof: {
-        pi_a: [String],
-        pi_b: [[String]],
-        pi_c: [String]
-      },
-      publicSignals: [String],
-      proofHash: {
-        type: String,
-        unique: true,
-        required: true
-      },
-      generationTime: Number // milliseconds
-    },
-    deviceInfo: {
-      model: String,
-      os: String,
-      appVersion: String,
-      ipAddress: String
-    },
-    biometricTypes: [{
-      type: String,
-      enum: ['fingerprint', 'face']
-    }],
-    verificationStatus: {
-      type: String,
-      enum: ['verified', 'pending', 'failed'],
-      default: 'verified'
-    },
-    verificationDetails: {
-      timestamp: Date,
-      method: String,
-      score: Number
+    device: {
+      deviceId: String,
+      platform: String,
+      appVersion: String
     }
   },
-  checkOut: {
-    timestamp: Date,
-    location: {
-      latitude: Number,
-      longitude: Number,
-      accuracy: Number,
-      address: String
+  verification: {
+    isVerified: {
+      type: Boolean,
+      default: true
     },
-    zkProof: {
-      protocol: { type: String, default: 'groth16' },
-      curve: { type: String, default: 'bn128' },
-      proof: {
-        pi_a: [String],
-        pi_b: [[String]],
-        pi_c: [String]
-      },
-      publicSignals: [String],
-      proofHash: String,
-      generationTime: Number
-    }
+    verifiedAt: Date,
+    verificationMethod: {
+      type: String,
+      enum: ['automatic', 'manual', 'blockchain'],
+      default: 'automatic'
+    },
+    blockchainTx: String
   },
-  duration: {
-    hours: { type: Number, default: 0 },
-    minutes: { type: Number, default: 0 },
-    totalMinutes: { type: Number, default: 0 }
-  },
-  status: {
-    type: String,
-    enum: ['present', 'absent', 'late', 'half-day', 'holiday', 'leave'],
-    default: 'present'
+  certificate: {
+    generated: {
+      type: Boolean,
+      default: false
+    },
+    url: String,
+    qrCode: String,
+    generatedAt: Date
   },
   flags: {
-    isLate: { type: Boolean, default: false },
-    isEarlyCheckout: { type: Boolean, default: false },
-    isOvertime: { type: Boolean, default: false },
-    isManualEntry: { type: Boolean, default: false },
-    isLocationMismatch: { type: Boolean, default: false }
+    suspicious: {
+      type: Boolean,
+      default: false
+    },
+    reason: String,
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin'
+    },
+    reviewedAt: Date
   },
-  certificates: [{
-    url: String,
-    generatedAt: Date,
-    type: { type: String, enum: ['check-in', 'check-out', 'daily'] },
-    downloadCount: { type: Number, default: 0 }
-  }],
-  notes: {
-    scholar: String,
-    admin: String
-  },
-  audit: {
-    createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now },
-    createdBy: String,
-    modifiedBy: String,
-    modifications: [{
-      timestamp: Date,
-      field: String,
-      oldValue: mongoose.Schema.Types.Mixed,
-      newValue: mongoose.Schema.Types.Mixed,
-      modifiedBy: String,
-      reason: String
-    }]
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    expires: 365 * 24 * 60 * 60 // Auto-delete after 1 year
   }
 });
 
-// Indexes
-AttendanceProofSchema.index({ organizationId: 1, date: -1 });
-AttendanceProofSchema.index({ scholarId: 1, date: -1 });
-AttendanceProofSchema.index({ 'checkIn.zkProof.proofHash': 1 });
-AttendanceProofSchema.index({ date: 1, status: 1 });
+// Compound indexes
+attendanceProofSchema.index({ scholarId: 1, 'metadata.date': -1 });
+attendanceProofSchema.index({ organizationId: 1, 'metadata.date': -1 });
+attendanceProofSchema.index({ 'metadata.date': 1, 'metadata.status': 1 });
 
-// Virtual fields
-AttendanceProofSchema.virtual('isComplete').get(function() {
-  return !!(this.checkIn && this.checkOut);
-});
-
-AttendanceProofSchema.virtual('workDuration').get(function() {
-  if (!this.checkIn || !this.checkOut) return null;
-  return {
-    hours: this.duration.hours,
-    minutes: this.duration.minutes,
-    formatted: `${this.duration.hours}h ${this.duration.minutes}m`
-  };
-});
+// Ensure one attendance per scholar per day
+attendanceProofSchema.index(
+  { 
+    scholarId: 1, 
+    'metadata.date': 1 
+  }, 
+  { 
+    unique: true,
+    partialFilterExpression: { 'verification.isVerified': true }
+  }
+);
 
 // Methods
-AttendanceProofSchema.methods.calculateDuration = function() {
-  if (!this.checkIn || !this.checkOut) return;
-  
-  const diff = this.checkOut.timestamp - this.checkIn.timestamp;
-  const totalMinutes = Math.floor(diff / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  
-  this.duration = {
-    hours,
-    minutes,
-    totalMinutes
-  };
+attendanceProofSchema.methods.generateCertificate = async function() {
+  // This will be implemented by the certificate service
+  this.certificate.generated = true;
+  this.certificate.generatedAt = new Date();
+  return this.save();
 };
 
-AttendanceProofSchema.methods.checkFlags = function(organizationSettings) {
-  const checkInTime = new Date(this.checkIn.timestamp);
-  const workStartTime = new Date(checkInTime);
-  const [startHour, startMinute] = organizationSettings.workingHours.start.split(':');
-  workStartTime.setHours(parseInt(startHour), parseInt(startMinute), 0, 0);
-  
-  // Check if late
-  const lateThreshold = organizationSettings.attendanceRules.allowLateCheckIn * 60000;
-  if (checkInTime > new Date(workStartTime.getTime() + lateThreshold)) {
-    this.flags.isLate = true;
-    this.status = 'late';
-  }
-  
-  // Check overtime
-  if (this.duration.totalMinutes > organizationSettings.attendanceRules.overtimeThreshold * 60) {
-    this.flags.isOvertime = true;
-  }
+attendanceProofSchema.methods.flagSuspicious = async function(reason, adminId) {
+  this.flags.suspicious = true;
+  this.flags.reason = reason;
+  this.flags.reviewedBy = adminId;
+  this.flags.reviewedAt = new Date();
+  return this.save();
 };
 
-AttendanceProofSchema.methods.generateCertificateUrl = function(type) {
-  const certificateId = `${this.scholarId}_${this.date.toISOString().split('T')[0]}_${type}`;
-  return `/api/attendance/certificate/${certificateId}`;
-};
-
-// Statics
-AttendanceProofSchema.statics.getDailyReport = async function(organizationId, date) {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
-  
-  return await this.aggregate([
-    {
-      $match: {
-        organizationId: mongoose.Types.ObjectId(organizationId),
-        date: { $gte: startOfDay, $lte: endOfDay }
-      }
-    },
-    {
-      $group: {
-        _id: '$status',
-        count: { $sum: 1 }
-      }
-    }
-  ]);
-};
-
-// Pre-save middleware
-AttendanceProofSchema.pre('save', function(next) {
-  this.audit.updatedAt = new Date();
-  if (this.checkIn && this.checkOut) {
-    this.calculateDuration();
-  }
-  next();
+// Virtual for display time
+attendanceProofSchema.virtual('displayTime').get(function() {
+  const time = new Date(this.metadata.checkInTime);
+  return time.toLocaleTimeString('en-US', { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
 });
 
-export default mongoose.model('AttendanceProof', AttendanceProofSchema);
+export default mongoose.model('AttendanceProof', attendanceProofSchema);
