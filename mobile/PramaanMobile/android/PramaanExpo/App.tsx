@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 ﻿import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -15,27 +16,10 @@ import MarkAttendanceScreen from '../../../PramaanExpo/src/screens/MarkAttendanc
 import AddScholarScreen from '../../../PramaanExpo/src/screens/AddScholarScreen';
 import AttendanceHistoryScreen from '../../../PramaanExpo/src/screens/AttendanceHistoryScreen';
 const Stack = createNativeStackNavigator();
+=======
+import React from 'react';
+import TestScreen from './TestScreen';
+>>>>>>> Stashed changes
 export default function App() {
-  return (
-    <SafeAreaProvider>
-      <PaperProvider>
-        <NavigationContainer>
-          <Stack.Navigator 
-            initialRouteName="Splash"
-            screenOptions={{ headerShown: false }}
-          >
-            <Stack.Screen name="Splash" component={SplashScreen} />
-            <Stack.Screen name="Welcome" component={WelcomeScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="RegisterOrg" component={RegisterOrgScreen} />
-            <Stack.Screen name="AdminDashboard" component={AdminDashboard} />
-            <Stack.Screen name="ScholarDashboard" component={ScholarDashboard} />
-            <Stack.Screen name="MarkAttendance" component={MarkAttendanceScreen} />
-            <Stack.Screen name="AddScholar" component={AddScholarScreen} />
-            <Stack.Screen name="AttendanceHistory" component={AttendanceHistoryScreen} />
-          </Stack.Navigator>
-        </NavigationContainer>
-      </PaperProvider>
-    </SafeAreaProvider>
-  );
+  return <TestScreen />;
 }

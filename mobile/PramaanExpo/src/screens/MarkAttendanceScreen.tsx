@@ -1,276 +1,446 @@
-﻿import React, { useState, useEffect } from 'react';
+// src/screens/MarkAttendanceScreen.tsx
+import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
+  ScrollView,
   Alert,
-  Platform,
   ActivityIndicator,
 } from 'react-native';
 import {
   Card,
-  Button,
   Title,
-  List,
-  Chip,
+  Paragraph,
+  Button,
+  Surface,
+  Text,
+  Divider,
+  IconButton,
+  useTheme,
+  Portal,
+  Modal,
 } from 'react-native-paper';
+import * as Location from 'expo-location';
+import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Geolocation from '@react-native-community/geolocation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const MarkAttendanceScreen = ({ navigation }: any) => {
-  const [location, setLocation] = useState<any>(null);
+import biometricService from '../services/biometric.service';
+import zkpService from '../services/zkp.service';
+import api from '../services/api';
+import { useAuth } from '../../App';
+
+interface AttendanceProof {
+  id: string;
+  proof: string;
+  timestamp: number;
+  location: {
+    latitude: number;
+    longitude: number;
+  };
+  verified: boolean;
+  qrCode?: string;
+}
+
+export default function MarkAttendanceScreen({ navigation }) {
+  const theme = useTheme();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [biometricReady, setBiometricReady] = useState(false);
-  const [attendanceSteps, setAttendanceSteps] = useState({
-    location: false,
-    biometric: false,
-    zkProof: false,
-  });
+  const [location, setLocation] = useState(null);
+  const [attendanceProof, setAttendanceProof] = useState<AttendanceProof | null>(null);
+  const [showProofModal, setShowProofModal] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState('');
 
   useEffect(() => {
-    requestLocationPermission();
+    checkLocationPermission();
   }, []);
 
-  const requestLocationPermission = async () => {
+  const checkLocationPermission = async () => {
     try {
-      // For real implementation, use react-native-permissions
-      getCurrentLocation();
-    } catch (error) {
-      Alert.alert('Error', 'Location permission is required');
-    }
-  };
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Location Required',
+          'Location permission is required to mark attendance.',
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+        return;
+      }
 
-  const getCurrentLocation = () => {
-    setLoading(true);
-    // Simulate getting location
-    setTimeout(() => {
-      setLocation({
-        latitude: 12.9716,
-        longitude: 77.5946,
-        accuracy: 15,
+      // Get current location
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
       });
-      setAttendanceSteps(prev => ({ ...prev, location: true }));
-      setLoading(false);
-    }, 2000);
-  };
-
-  const handleBiometricScan = () => {
-    Alert.alert(
-      'Biometric Authentication',
-      'Place your finger on the sensor',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'OK',
-          onPress: () => {
-            setLoading(true);
-            // Simulate biometric scan
-            setTimeout(() => {
-              setAttendanceSteps(prev => ({ ...prev, biometric: true }));
-              setBiometricReady(true);
-              setLoading(false);
-              Alert.alert('Success', 'Biometric scan successful');
-            }, 3000);
-          },
-        },
-      ]
-    );
-  };
-
-  const generateZKProof = async () => {
-    setLoading(true);
-    try {
-      // Simulate ZKP generation
-      setTimeout(() => {
-        setAttendanceSteps(prev => ({ ...prev, zkProof: true }));
-        setLoading(false);
-        submitAttendance();
-      }, 2000);
+      setLocation(currentLocation.coords);
     } catch (error) {
-      setLoading(false);
-      Alert.alert('Error', 'Failed to generate proof');
+      console.error('Location error:', error);
+      Alert.alert('Error', 'Failed to get location. Please try again.');
     }
   };
 
-  const submitAttendance = () => {
-    Alert.alert(
-      'Success',
-      'Attendance marked successfully!',
-      [
+  const markAttendance = async () => {
+    if (!location) {
+      Alert.alert('Error', 'Location not available. Please enable location services.');
+      return;
+    }
+
+    setLoading(true);
+    setVerificationStatus('Authenticating with biometrics...');
+
+    try {
+      // Step 1: Biometric authentication
+      const biometricResult = await biometricService.authenticate(
+        'Authenticate to mark attendance'
+      );
+
+      if (!biometricResult.success) {
+        throw new Error('Biometric authentication failed');
+      }
+
+      setVerificationStatus('Generating zero-knowledge proof...');
+
+      // Step 2: Get stored commitment
+      const commitment = await AsyncStorage.getItem('biometricCommitment');
+      if (!commitment) {
+        throw new Error('No biometric registration found');
+      }
+
+      // Step 3: Generate ZKP attendance proof
+      const zkpProof = await zkpService.generateAttendanceProof(
         {
-          text: 'OK',
-          onPress: () => navigation.goBack(),
+          type: biometricResult.type,
+          data: biometricResult.data,
+          timestamp: Date.now(),
         },
-      ]
-    );
+        commitment,
+        location
+      );
+
+      setVerificationStatus('Submitting attendance proof...');
+
+      // Step 4: Submit to backend
+      const response = await api.post('/attendance/mark', {
+        proof: zkpProof.proof,
+        publicSignals: zkpProof.publicSignals,
+        location: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+        },
+        timestamp: zkpProof.timestamp,
+      });
+
+      if (response.data.success) {
+        // Generate verifiable credential
+        const credential = await zkpService.generateVerifiableCredential(zkpProof);
+        
+        setAttendanceProof({
+          id: response.data.attendanceId,
+          proof: zkpProof.proof,
+          timestamp: zkpProof.timestamp,
+          location: zkpProof.location,
+          verified: true,
+          qrCode: credential,
+        });
+
+        setShowProofModal(true);
+        setVerificationStatus('');
+        
+        Alert.alert(
+          'Success',
+          'Attendance marked successfully!',
+          [
+            {
+              text: 'View Proof',
+              onPress: () => setShowProofModal(true),
+            },
+            {
+              text: 'OK',
+              onPress: () => navigation.goBack(),
+            },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Attendance error:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to mark attendance. Please try again.'
+      );
+    } finally {
+      setLoading(false);
+      setVerificationStatus('');
+    }
   };
 
-  const allStepsCompleted = Object.values(attendanceSteps).every(v => v);
+  const shareProof = async () => {
+    if (!attendanceProof) return;
+
+    try {
+      // In a real app, implement sharing functionality
+      Alert.alert('Share Proof', 'Proof sharing functionality would be implemented here.');
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  };
+
+  const downloadProof = async () => {
+    if (!attendanceProof) return;
+
+    try {
+      // In a real app, implement download functionality
+      Alert.alert('Download Proof', 'Proof has been saved to your device.');
+    } catch (error) {
+      console.error('Download error:', error);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Card style={styles.card}>
-          <Card.Content>
-            <Title style={styles.title}>Mark Your Attendance</Title>
-            <Text style={styles.subtitle}>
-              Complete all steps to mark your attendance
-            </Text>
-
-            {/* Location Step */}
-            <List.Item
-              title="Location Verification"
-              description={location ? `Accuracy: ${location.accuracy}m` : 'Getting your location...'}
-              left={props => (
-                <List.Icon
-                  {...props}
-                  icon="map-marker"
-                  color={attendanceSteps.location ? '#4CAF50' : '#999'}
-                />
-              )}
-              right={() => (
-                attendanceSteps.location ? (
-                  <Chip icon="check" style={styles.successChip}>Done</Chip>
-                ) : (
-                  loading && <ActivityIndicator size="small" />
-                )
-              )}
-            />
-
-            {/* Biometric Step */}
-            <List.Item
-              title="Biometric Authentication"
-              description="Scan your fingerprint or face"
-              left={props => (
-                <List.Icon
-                  {...props}
-                  icon="fingerprint"
-                  color={attendanceSteps.biometric ? '#4CAF50' : '#999'}
-                />
-              )}
-              right={() => (
-                attendanceSteps.biometric ? (
-                  <Chip icon="check" style={styles.successChip}>Done</Chip>
-                ) : (
-                  <Button
-                    mode="outlined"
-                    onPress={handleBiometricScan}
-                    disabled={!attendanceSteps.location || loading}
-                    compact
-                  >
-                    Scan
-                  </Button>
-                )
-              )}
-            />
-
-            {/* ZK Proof Step */}
-            <List.Item
-              title="Generate ZK Proof"
-              description="Creating privacy-preserving proof"
-              left={props => (
-                <List.Icon
-                  {...props}
-                  icon="shield-check"
-                  color={attendanceSteps.zkProof ? '#4CAF50' : '#999'}
-                />
-              )}
-              right={() => (
-                attendanceSteps.zkProof ? (
-                  <Chip icon="check" style={styles.successChip}>Done</Chip>
-                ) : (
-                  loading && attendanceSteps.biometric && <ActivityIndicator size="small" />
-                )
-              )}
-            />
-          </Card.Content>
-        </Card>
-
-        {/* Action Button */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Button
-              mode="contained"
-              onPress={generateZKProof}
-              style={styles.submitButton}
-              contentStyle={styles.buttonContent}
-              disabled={!biometricReady || loading || allStepsCompleted}
-              loading={loading}
-            >
-              {allStepsCompleted ? 'Attendance Marked' : 'Submit Attendance'}
-            </Button>
-          </Card.Content>
-        </Card>
-
-        {/* Info Card */}
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <Card style={styles.infoCard}>
           <Card.Content>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoIcon}>ℹ️</Text>
-              <Text style={styles.infoText}>
-                Your biometric data is never stored. Only a zero-knowledge proof
-                is generated and submitted.
-              </Text>
+            <Title>Zero-Knowledge Attendance</Title>
+            <Paragraph>
+              Mark your attendance using biometric authentication. 
+              Your biometric data remains private through ZKP technology.
+            </Paragraph>
+          </Card.Content>
+        </Card>
+
+        <Surface style={styles.statusCard}>
+          <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Location:</Text>
+            <Text style={styles.statusValue}>
+              {location ? '📍 Available' : '📍 Getting location...'}
+            </Text>
+          </View>
+          <Divider style={styles.divider} />
+          <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Time:</Text>
+            <Text style={styles.statusValue}>
+              {new Date().toLocaleTimeString()}
+            </Text>
+          </View>
+          <Divider style={styles.divider} />
+          <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Scholar ID:</Text>
+            <Text style={styles.statusValue}>{user?.scholarId || 'N/A'}</Text>
+          </View>
+        </Surface>
+
+        {verificationStatus ? (
+          <Card style={styles.verificationCard}>
+            <Card.Content>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text style={styles.verificationText}>{verificationStatus}</Text>
+            </Card.Content>
+          </Card>
+        ) : null}
+
+        <Button
+          mode="contained"
+          onPress={markAttendance}
+          loading={loading}
+          disabled={loading || !location}
+          style={styles.markButton}
+          contentStyle={styles.markButtonContent}
+          icon="fingerprint"
+        >
+          Mark Attendance with Biometric
+        </Button>
+
+        <Card style={styles.featuresCard}>
+          <Card.Content>
+            <Title style={styles.featuresTitle}>Privacy Features</Title>
+            <View style={styles.feature}>
+              <Text style={styles.featureIcon}>🔐</Text>
+              <View style={styles.featureText}>
+                <Text style={styles.featureTitle}>Zero-Knowledge Proof</Text>
+                <Text style={styles.featureDesc}>
+                  Your biometric data never leaves your device
+                </Text>
+              </View>
+            </View>
+            <View style={styles.feature}>
+              <Text style={styles.featureIcon}>🎫</Text>
+              <View style={styles.featureText}>
+                <Text style={styles.featureTitle}>Verifiable Credentials</Text>
+                <Text style={styles.featureDesc}>
+                  Generate cryptographic proofs of attendance
+                </Text>
+              </View>
+            </View>
+            <View style={styles.feature}>
+              <Text style={styles.featureIcon}>🌍</Text>
+              <View style={styles.featureText}>
+                <Text style={styles.featureTitle}>Location Verification</Text>
+                <Text style={styles.featureDesc}>
+                  Attendance linked to authorized locations
+                </Text>
+              </View>
             </View>
           </Card.Content>
         </Card>
-      </View>
+      </ScrollView>
+
+      <Portal>
+        <Modal
+          visible={showProofModal}
+          onDismiss={() => setShowProofModal(false)}
+          contentContainerStyle={styles.modalContent}
+        >
+          <Title style={styles.modalTitle}>Attendance Proof</Title>
+          {attendanceProof && (
+            <>
+              <View style={styles.qrContainer}>
+                <QRCode
+                  value={attendanceProof.qrCode || attendanceProof.proof}
+                  size={200}
+                  backgroundColor="white"
+                />
+              </View>
+              <Text style={styles.proofId}>
+                Proof ID: {attendanceProof.id.substring(0, 8)}...
+              </Text>
+              <Text style={styles.proofTime}>
+                Time: {new Date(attendanceProof.timestamp).toLocaleString()}
+              </Text>
+              <View style={styles.modalActions}>
+                <Button
+                  mode="outlined"
+                  onPress={shareProof}
+                  icon="share"
+                  style={styles.modalButton}
+                >
+                  Share
+                </Button>
+                <Button
+                  mode="contained"
+                  onPress={downloadProof}
+                  icon="download"
+                  style={styles.modalButton}
+                >
+                  Download
+                </Button>
+              </View>
+            </>
+          )}
+        </Modal>
+      </Portal>
     </SafeAreaView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  content: {
-    padding: 15,
-  },
-  card: {
-    marginBottom: 15,
-    elevation: 3,
-  },
-  title: {
-    fontSize: 22,
-    textAlign: 'center',
-    marginBottom: 5,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  successChip: {
-    backgroundColor: '#E8F5E9',
-  },
-  submitButton: {
-    backgroundColor: '#6C63FF',
-  },
-  buttonContent: {
-    height: 50,
+  scrollContent: {
+    padding: 16,
   },
   infoCard: {
-    backgroundColor: '#E3F2FD',
-    elevation: 1,
+    marginBottom: 16,
+    elevation: 2,
   },
-  infoRow: {
+  statusCard: {
+    padding: 16,
+    marginBottom: 16,
+    elevation: 2,
+    borderRadius: 8,
+  },
+  statusRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
   },
-  infoIcon: {
+  statusLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  statusValue: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  divider: {
+    marginVertical: 4,
+  },
+  verificationCard: {
+    marginBottom: 16,
+    padding: 20,
+    alignItems: 'center',
+  },
+  verificationText: {
+    marginTop: 12,
     fontSize: 16,
-    marginRight: 10,
+    color: '#666',
+    textAlign: 'center',
   },
-  infoText: {
+  markButton: {
+    marginBottom: 24,
+    elevation: 4,
+  },
+  markButtonContent: {
+    paddingVertical: 8,
+  },
+  featuresCard: {
+    elevation: 2,
+  },
+  featuresTitle: {
+    marginBottom: 16,
+    fontSize: 18,
+  },
+  feature: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  featureIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  featureText: {
     flex: 1,
-    fontSize: 12,
-    color: '#1976D2',
+  },
+  featureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  featureDesc: {
+    fontSize: 14,
+    color: '#666',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    padding: 24,
+    margin: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    marginBottom: 20,
+  },
+  qrContainer: {
+    padding: 20,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  proofId: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+  },
+  proofTime: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
   },
 });
-
-export default MarkAttendanceScreen;

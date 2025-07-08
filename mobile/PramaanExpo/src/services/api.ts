@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 ﻿// mobile/PramaanMobile/src/services/api.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
@@ -68,10 +69,23 @@ class ApiService {
 
       return data;
     } catch (error: any) {
+=======
+class ApiService {
+  async adminLogin(email, password) {
+    try {
+      const response = await fetch('http://10.0.2.2:5000/api/auth/admin-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      return await response.json();
+    } catch (error) {
+>>>>>>> Stashed changes
       console.error('API Error:', error);
       throw error;
     }
   }
+<<<<<<< Updated upstream
 
   // Auth endpoints
   async adminLogin(email: string, password: string) {
@@ -176,3 +190,22 @@ class ApiService {
 }
 
 export default new ApiService();
+=======
+  
+  async registerOrganization(data) {
+    try {
+      const response = await fetch('http://10.0.2.2:5000/api/organizations/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  }
+}
+
+export default new ApiService();
+>>>>>>> Stashed changes

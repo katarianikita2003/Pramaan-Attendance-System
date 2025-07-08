@@ -104,7 +104,7 @@ async function startServer() {
     logger.info('✅ ZKP Service initialized');
 
     // Start server
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       logger.info(`🚀 Pramaan Backend Server running on port ${PORT}`);
       logger.info(`📱 Environment: ${process.env.NODE_ENV}`);
       logger.info(`🔐 ZKP Status: ${zkpService.isInitialized ? 'Active' : 'Simulation Mode'}`);

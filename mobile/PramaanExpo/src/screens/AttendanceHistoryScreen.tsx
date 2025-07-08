@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 ﻿import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -151,10 +152,21 @@ export default function AttendanceHistoryScreen() {
         </Card>
       ))}
     </ScrollView>
+=======
+﻿import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+
+export default function AttendanceHistoryScreen() {
+  return (
+    <View style={styles.container}>
+      <Text>Attendance History Screen</Text>
+    </View>
+>>>>>>> Stashed changes
   );
 }
 
 const styles = StyleSheet.create({
+<<<<<<< Updated upstream
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
@@ -213,3 +225,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+=======
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+});
+>>>>>>> Stashed changes
