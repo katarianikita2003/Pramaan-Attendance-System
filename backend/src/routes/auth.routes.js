@@ -25,8 +25,9 @@ router.post('/admin-login',
 
       const { email, password } = req.body;
 
-      // Find admin
+      // Find admin with password field
       const admin = await Admin.findOne({ 'personalInfo.email': email })
+        .select('+credentials.password')
         .populate('organizationId');
 
       if (!admin) {
@@ -40,8 +41,8 @@ router.post('/admin-login',
         });
       }
 
-      // Check if admin is active
-      if (!admin.status.isActive) {
+      // Check if admin is active (fixed from status.isActive to isActive)
+      if (!admin.isActive) {
         return res.status(403).json({ error: 'Account is deactivated' });
       }
 
@@ -55,6 +56,10 @@ router.post('/admin-login',
 
       // Reset login attempts
       await admin.resetLoginAttempts();
+
+      // Update last login
+      admin.activity.lastLogin = new Date();
+      await admin.save();
 
       // Generate token
       const token = jwt.sign(
@@ -124,7 +129,7 @@ router.post('/scholar-login',
       const scholar = await Scholar.findOne({
         organizationId: organization._id,
         scholarId: scholarId,
-        'status.isActive': true
+        status: 'active'  // Fixed from 'status.isActive' to 'status'
       });
 
       if (!scholar) {
@@ -192,7 +197,8 @@ router.post('/refresh-token', async (req, res) => {
       { 
         userId: decoded.userId,
         organizationId: decoded.organizationId,
-        role: decoded.role
+        role: decoded.role,
+        permissions: decoded.permissions
       },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
@@ -207,5 +213,46 @@ router.post('/refresh-token', async (req, res) => {
     res.status(401).json({ error: 'Invalid token' });
   }
 });
+
+// Password reset request
+router.post('/forgot-password',
+  [
+    body('email').isEmail().normalizeEmail(),
+    body('userType').isIn(['admin', 'scholar'])
+  ],
+  async (req, res) => {
+    try {
+      const { email, userType } = req.body;
+
+      if (userType === 'admin') {
+        const admin = await Admin.findOne({ 'personalInfo.email': email });
+        if (!admin) {
+          // Don't reveal if email exists
+          return res.json({ message: 'If the email exists, a reset link has been sent' });
+        }
+
+        const resetToken = admin.generatePasswordResetToken();
+        await admin.save();
+
+        // Send email (implement email service)
+        logger.info(`Password reset requested for admin: ${email}`);
+      } else {
+        const scholar = await Scholar.findOne({ 'personalInfo.email': email });
+        if (!scholar) {
+          return res.json({ message: 'If the email exists, a reset link has been sent' });
+        }
+
+        // Implement scholar password reset
+        logger.info(`Password reset requested for scholar: ${email}`);
+      }
+
+      res.json({ message: 'If the email exists, a reset link has been sent' });
+
+    } catch (error) {
+      logger.error('Password reset error:', error);
+      res.status(500).json({ error: 'Failed to process request' });
+    }
+  }
+);
 
 export default router;

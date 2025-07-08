@@ -1,170 +1,271 @@
 // backend/src/services/biometric.service.js
 import crypto from 'crypto';
+import sharp from 'sharp';
 import logger from '../utils/logger.js';
 
 export class BiometricService {
   constructor() {
     this.algorithm = 'aes-256-gcm';
-    this.key = Buffer.from(process.env.BIOMETRIC_ENCRYPTION_KEY || 'default-32-char-encryption-key!!', 'utf8');
+    this.key = Buffer.from(process.env.BIOMETRIC_ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex'), 'hex');
   }
 
   /**
-   * Generate a cryptographic commitment from biometric data
-   * In production, this would use actual biometric feature extraction
+   * Validate biometric data quality
    */
-  async generateCommitment(biometricData) {
-    try {
-      // For MVP, we'll simulate biometric feature extraction
-      const features = this.extractFeatures(biometricData);
-      
-      // Generate salt for this biometric
-      const salt = crypto.randomBytes(32).toString('hex');
-      
-      // Create commitment using hash
-      const commitment = crypto
-        .createHash('sha256')
-        .update(features + salt)
-        .digest('hex');
-      
-      return {
-        commitment,
-        salt,
-        features: this.encryptData(features)
-      };
-    } catch (error) {
-      logger.error('Biometric commitment generation failed:', error);
-      throw new Error('Failed to process biometric data');
-    }
-  }
+  validateBiometricQuality(biometricData) {
+    const errors = [];
+    const minQualityScore = 0.7;
 
-  /**
-   * Verify biometric data against stored commitment
-   */
-  async verifyBiometric(biometricData, storedCommitment, salt) {
-    try {
-      const features = this.extractFeatures(biometricData);
-      
-      const testCommitment = crypto
-        .createHash('sha256')
-        .update(features + salt)
-        .digest('hex');
-      
-      return testCommitment === storedCommitment;
-    } catch (error) {
-      logger.error('Biometric verification failed:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Check if biometric already exists globally
-   */
-  async checkGlobalUniqueness(biometricData, existingHashes = []) {
-    try {
-      // For MVP, we'll use a simplified similarity check
-      const features = this.extractFeatures(biometricData);
-      const testHash = this.generateFeatureHash(features);
-      
-      // In production, this would use more sophisticated matching
-      for (const existingHash of existingHashes) {
-        if (this.calculateSimilarity(testHash, existingHash) > 0.95) {
-          return false; // Not unique
-        }
+    // Validate face data
+    if (biometricData.face) {
+      const faceQuality = this.assessFaceQuality(biometricData.face);
+      if (faceQuality.score < minQualityScore) {
+        errors.push(...faceQuality.issues);
       }
-      
-      return true; // Unique
+    }
+
+    // Validate fingerprint data
+    if (biometricData.fingerprint) {
+      const fingerprintQuality = this.assessFingerprintQuality(biometricData.fingerprint);
+      if (fingerprintQuality.score < minQualityScore) {
+        errors.push(...fingerprintQuality.issues);
+      }
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      quality: {
+        face: biometricData.face ? this.assessFaceQuality(biometricData.face).score : null,
+        fingerprint: biometricData.fingerprint ? this.assessFingerprintQuality(biometricData.fingerprint).score : null
+      }
+    };
+  }
+
+  /**
+   * Assess face image quality
+   */
+  assessFaceQuality(faceData) {
+    const issues = [];
+    let score = 1.0;
+
+    try {
+      // Check image dimensions
+      if (faceData.width < 200 || faceData.height < 200) {
+        issues.push('Face image resolution too low');
+        score -= 0.3;
+      }
+
+      // Check image format
+      if (!['image/jpeg', 'image/png'].includes(faceData.mimeType)) {
+        issues.push('Invalid image format');
+        score -= 0.2;
+      }
+
+      // Check file size
+      if (faceData.size > 5 * 1024 * 1024) {
+        issues.push('Image file too large');
+        score -= 0.1;
+      }
+
+      // Simulate face detection confidence
+      const faceConfidence = Math.random() * 0.3 + 0.7; // 0.7 to 1.0
+      if (faceConfidence < 0.8) {
+        issues.push('Low face detection confidence');
+        score -= (1 - faceConfidence);
+      }
+
+      return { score: Math.max(0, score), issues };
     } catch (error) {
-      logger.error('Global uniqueness check failed:', error);
-      throw error;
+      logger.error('Face quality assessment error:', error);
+      return { score: 0, issues: ['Face quality assessment failed'] };
     }
   }
 
   /**
-   * Generate a global hash for cross-organization uniqueness
+   * Assess fingerprint quality
    */
-  generateGlobalHash(biometricData) {
-    const features = this.extractFeatures(biometricData);
-    return this.generateFeatureHash(features);
-  }
+  assessFingerprintQuality(fingerprintData) {
+    const issues = [];
+    let score = 1.0;
 
-  /**
-   * Extract features from biometric data (simplified for MVP)
-   */
-  extractFeatures(biometricData) {
-    // In production, this would use actual biometric algorithms
-    // For MVP, we'll create a deterministic feature string
-    
-    if (biometricData.type === 'face') {
-      // Simulate face feature extraction
-      return `face_features_${biometricData.data.substring(0, 50)}`;
-    } else if (biometricData.type === 'fingerprint') {
-      // Simulate fingerprint feature extraction
-      return `fingerprint_features_${biometricData.data.substring(0, 50)}`;
+    try {
+      // Check minutiae count
+      const minutiaeCount = fingerprintData.minutiaeCount || 0;
+      if (minutiaeCount < 12) {
+        issues.push('Insufficient fingerprint minutiae');
+        score -= 0.4;
+      }
+
+      // Check image quality score
+      const qualityScore = fingerprintData.qualityScore || 0;
+      if (qualityScore < 60) {
+        issues.push('Low fingerprint quality score');
+        score -= (100 - qualityScore) / 100;
+      }
+
+      // Check capture device
+      if (!fingerprintData.deviceInfo) {
+        issues.push('Missing capture device information');
+        score -= 0.1;
+      }
+
+      return { score: Math.max(0, score), issues };
+    } catch (error) {
+      logger.error('Fingerprint quality assessment error:', error);
+      return { score: 0, issues: ['Fingerprint quality assessment failed'] };
     }
-    
-    throw new Error('Unsupported biometric type');
   }
 
   /**
-   * Generate feature hash
+   * Process and normalize face image
    */
-  generateFeatureHash(features) {
-    return crypto
+  async processFaceImage(imageBuffer) {
+    try {
+      // Resize and normalize image
+      const processedImage = await sharp(imageBuffer)
+        .resize(224, 224) // Standard size for face recognition
+        .grayscale()
+        .normalize()
+        .toBuffer();
+
+      return processedImage;
+    } catch (error) {
+      logger.error('Face image processing error:', error);
+      throw new Error('Failed to process face image');
+    }
+  }
+
+  /**
+   * Extract face encoding (simulated)
+   */
+  async extractFaceEncoding(processedImage) {
+    // In production, this would use a real face recognition library
+    // For now, we'll simulate with a hash
+    const encoding = crypto
       .createHash('sha256')
-      .update(features)
+      .update(processedImage)
       .digest('hex');
+
+    return encoding;
   }
 
   /**
-   * Calculate similarity between two hashes (simplified)
+   * Extract fingerprint template (simulated)
    */
-  calculateSimilarity(hash1, hash2) {
-    // In production, this would use proper biometric matching algorithms
-    // For MVP, we'll do exact matching
-    return hash1 === hash2 ? 1.0 : 0.0;
+  async extractFingerprintTemplate(fingerprintData) {
+    // In production, this would use a real fingerprint SDK
+    // For now, we'll simulate with a hash
+    const template = crypto
+      .createHash('sha256')
+      .update(JSON.stringify(fingerprintData))
+      .digest('hex');
+
+    return template;
   }
 
   /**
    * Encrypt sensitive data
    */
-  encryptData(data) {
+  encrypt(data) {
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv(this.algorithm, this.key, iv);
     
-    let encrypted = cipher.update(data, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
+    const encrypted = Buffer.concat([
+      cipher.update(JSON.stringify(data), 'utf8'),
+      cipher.final()
+    ]);
     
     const authTag = cipher.getAuthTag();
     
     return {
-      encrypted,
-      iv: iv.toString('hex'),
-      authTag: authTag.toString('hex')
+      encrypted: encrypted.toString('base64'),
+      iv: iv.toString('base64'),
+      authTag: authTag.toString('base64')
     };
   }
 
   /**
    * Decrypt sensitive data
    */
-  decryptData(encryptedData) {
+  decrypt(encryptedData) {
     const decipher = crypto.createDecipheriv(
       this.algorithm,
       this.key,
-      Buffer.from(encryptedData.iv, 'hex')
+      Buffer.from(encryptedData.iv, 'base64')
     );
     
-    decipher.setAuthTag(Buffer.from(encryptedData.authTag, 'hex'));
+    decipher.setAuthTag(Buffer.from(encryptedData.authTag, 'base64'));
     
-    let decrypted = decipher.update(encryptedData.encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(encryptedData.encrypted, 'base64')),
+      decipher.final()
+    ]);
     
-    return decrypted;
+    return JSON.parse(decrypted.toString('utf8'));
   }
 
   /**
-   * Generate DID (Decentralized Identifier)
+   * Generate biometric hash for matching
    */
-  generateDID() {
-    return `did:pramaan:${crypto.randomBytes(16).toString('hex')}`;
+  generateBiometricHash(template, salt) {
+    return crypto
+      .createHash('sha256')
+      .update(template + salt)
+      .digest('hex');
+  }
+
+  /**
+   * Compare biometric templates (simulated)
+   */
+  compareTemplates(template1, template2, threshold = 0.8) {
+    // In production, this would use actual biometric matching
+    // For now, we'll simulate with string comparison
+    const similarity = template1 === template2 ? 1.0 : Math.random() * 0.3;
+    
+    return {
+      match: similarity >= threshold,
+      score: similarity
+    };
+  }
+
+  /**
+   * Generate liveness challenge
+   */
+  generateLivenessChallenge() {
+    const challenges = [
+      'blink_twice',
+      'turn_head_left',
+      'turn_head_right',
+      'smile',
+      'open_mouth'
+    ];
+    
+    const selectedChallenges = [];
+    for (let i = 0; i < 3; i++) {
+      const index = Math.floor(Math.random() * challenges.length);
+      selectedChallenges.push(challenges[index]);
+      challenges.splice(index, 1);
+    }
+    
+    return {
+      challengeId: crypto.randomBytes(16).toString('hex'),
+      challenges: selectedChallenges,
+      expiresAt: new Date(Date.now() + 60000) // 1 minute
+    };
+  }
+
+  /**
+   * Verify liveness challenge (simulated)
+   */
+  verifyLivenessChallenge(challengeId, responses) {
+    // In production, this would analyze the actual video/images
+    // For now, we'll simulate success
+    return {
+      isLive: true,
+      confidence: 0.95
+    };
   }
 }
+
+export default BiometricService;

@@ -1,52 +1,89 @@
-export const CONSTANTS = {
-  // JWT
-  JWT_EXPIRES_IN: '7d',
-  JWT_REFRESH_EXPIRES_IN: '30d',
-  
-  // Rate Limiting
-  RATE_LIMIT_WINDOW: 15 * 60 * 1000, // 15 minutes
-  RATE_LIMIT_MAX_REQUESTS: 100,
-  AUTH_RATE_LIMIT_MAX: 5,
-  
-  // File Upload
-  MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
-  ALLOWED_FILE_TYPES: ['image/jpeg', 'image/png', 'image/webp'],
-  
-  // ZKP
-  ZKP_CIRCUIT_PATH: './src/zkp/circuits',
-  ZKP_PROOF_EXPIRY: 5 * 60 * 1000, // 5 minutes
-  
-  // Attendance
-  ATTENDANCE_WINDOW: 30 * 60 * 1000, // 30 minutes
-  LATE_THRESHOLD: 15 * 60 * 1000, // 15 minutes
-  
-  // Location
-  DEFAULT_LOCATION_RADIUS: 500, // meters
-  LOCATION_ACCURACY_THRESHOLD: 50, // meters
-};
-
+// backend/src/config/constants.js
 export const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
-    if (!origin || allowedOrigins.includes(origin)) {
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+      'http://localhost:3000',
+      'http://localhost:8081',
+      'http://localhost:19000'
+    ];
+    
+    // Allow requests with no origin (like mobile apps)
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
-  optionsSuccessStatus: 200
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['X-Auth-Token']
 };
 
-export const ERROR_CODES = {
-  VALIDATION_ERROR: 'VALIDATION_ERROR',
-  AUTHENTICATION_ERROR: 'AUTHENTICATION_ERROR',
-  AUTHORIZATION_ERROR: 'AUTHORIZATION_ERROR',
-  NOT_FOUND: 'NOT_FOUND',
-  DUPLICATE_ENTRY: 'DUPLICATE_ENTRY',
-  RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
-  ZKP_GENERATION_FAILED: 'ZKP_GENERATION_FAILED',
-  ZKP_VERIFICATION_FAILED: 'ZKP_VERIFICATION_FAILED',
-  BIOMETRIC_MISMATCH: 'BIOMETRIC_MISMATCH',
-  LOCATION_OUTSIDE_BOUNDS: 'LOCATION_OUTSIDE_BOUNDS',
+export const ROLES = {
+  SUPER_ADMIN: 'super_admin',
+  ORG_ADMIN: 'org_admin',
+  SCHOLAR: 'scholar'
+};
+
+export const ATTENDANCE_STATUS = {
+  PRESENT: 'present',
+  ABSENT: 'absent',
+  LATE: 'late',
+  EXCUSED: 'excused'
+};
+
+export const BIOMETRIC_TYPES = {
+  FACE: 'face',
+  FINGERPRINT: 'fingerprint'
+};
+
+export const ERROR_MESSAGES = {
+  UNAUTHORIZED: 'Unauthorized access',
+  INVALID_CREDENTIALS: 'Invalid credentials',
+  USER_NOT_FOUND: 'User not found',
+  ORGANIZATION_NOT_FOUND: 'Organization not found',
+  INVALID_BIOMETRIC: 'Invalid biometric data',
+  ATTENDANCE_ALREADY_MARKED: 'Attendance already marked for today',
+  INVALID_LOCATION: 'Invalid location for attendance',
+  SERVER_ERROR: 'Internal server error'
+};
+
+export const SUCCESS_MESSAGES = {
+  LOGIN_SUCCESS: 'Login successful',
+  LOGOUT_SUCCESS: 'Logout successful',
+  ATTENDANCE_MARKED: 'Attendance marked successfully',
+  SCHOLAR_CREATED: 'Scholar created successfully',
+  ORGANIZATION_CREATED: 'Organization created successfully'
+};
+
+export const PAGINATION = {
+  DEFAULT_PAGE: 1,
+  DEFAULT_LIMIT: 20,
+  MAX_LIMIT: 100
+};
+
+export const FILE_UPLOAD = {
+  MAX_SIZE: 5 * 1024 * 1024, // 5MB
+  ALLOWED_TYPES: ['image/jpeg', 'image/png', 'image/jpg']
+};
+
+export const JWT_EXPIRY = {
+  ACCESS_TOKEN: '1d',
+  REFRESH_TOKEN: '7d'
+};
+
+export const LOCATION_THRESHOLD = 100; // meters
+
+export default {
+  corsOptions,
+  ROLES,
+  ATTENDANCE_STATUS,
+  BIOMETRIC_TYPES,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+  PAGINATION,
+  FILE_UPLOAD,
+  JWT_EXPIRY,
+  LOCATION_THRESHOLD
 };

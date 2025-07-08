@@ -4,29 +4,37 @@ import mongoose from 'mongoose';
 const organizationSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,
-    trim: true
+    required: [true, 'Organization name is required'],
+    trim: true,
+    unique: true
   },
   code: {
     type: String,
     required: true,
     unique: true,
-    uppercase: true,
-    index: true
+    uppercase: true
   },
   type: {
     type: String,
-    enum: ['educational', 'corporate', 'government', 'other'],
+    enum: ['educational', 'corporate', 'government', 'ngo', 'other'],
     default: 'educational'
   },
   contact: {
     email: {
       type: String,
       required: true,
-      lowercase: true
+      lowercase: true,
+      unique: true
     },
-    phone: String,
-    address: String
+    phone: {
+      type: String,
+      required: true
+    },
+    address: {
+      type: String,
+      required: true
+    },
+    website: String
   },
   location: {
     coordinates: {
@@ -35,73 +43,79 @@ const organizationSchema = new mongoose.Schema({
     },
     radius: {
       type: Number,
-      default: 500 // meters
-    },
-    campuses: [{
-      name: String,
-      coordinates: {
-        latitude: Number,
-        longitude: Number
-      },
-      radius: Number
-    }]
+      default: 100 // meters
+    }
   },
   subscription: {
     plan: {
       type: String,
-      enum: ['free', 'basic', 'professional', 'enterprise'],
+      enum: ['free', 'basic', 'premium', 'enterprise'],
       default: 'free'
     },
     scholarLimit: {
       type: Number,
       default: 50
     },
-    currentCount: {
-      type: Number,
-      default: 0
+    startDate: {
+      type: Date,
+      default: Date.now
     },
-    startDate: Date,
     endDate: Date,
-    status: {
-      type: String,
-      enum: ['active', 'expired', 'suspended'],
-      default: 'active'
+    isActive: {
+      type: Boolean,
+      default: true
     }
   },
   settings: {
-    attendanceWindow: {
+    attendanceMode: {
+      type: String,
+      enum: ['biometric', 'qr', 'both'],
+      default: 'both'
+    },
+    workingHours: {
       start: {
         type: String,
-        default: '08:00'
+        default: '09:00'
       },
       end: {
         type: String,
-        default: '10:00'
+        default: '18:00'
       }
     },
-    lateThreshold: {
-      type: Number,
-      default: 15 // minutes
+    workingDays: {
+      type: [Number],
+      default: [1, 2, 3, 4, 5] // Monday to Friday
     },
     requireLocation: {
       type: Boolean,
       default: true
     },
-    allowMultipleCheckIns: {
+    autoApproveScholars: {
       type: Boolean,
       default: false
     }
   },
-  branding: {
-    logo: String,
-    primaryColor: {
-      type: String,
-      default: '#1976D2'
+  stats: {
+    totalScholars: {
+      type: Number,
+      default: 0
+    },
+    activeScholars: {
+      type: Number,
+      default: 0
+    },
+    totalAttendance: {
+      type: Number,
+      default: 0
     }
   },
   isActive: {
     type: Boolean,
     default: true
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
   },
   createdAt: {
     type: Date,
@@ -111,27 +125,56 @@ const organizationSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+}, {
+  timestamps: true
+});
+
+// Indexes
+organizationSchema.index({ code: 1 });
+organizationSchema.index({ 'contact.email': 1 });
+organizationSchema.index({ isActive: 1, isVerified: 1 });
+
+// Virtual for scholar count
+organizationSchema.virtual('scholarCount', {
+  ref: 'Scholar',
+  localField: '_id',
+  foreignField: 'organizationId',
+  count: true
 });
 
 // Methods
 organizationSchema.methods.canAddMoreScholars = function() {
-  return this.subscription.currentCount < this.subscription.scholarLimit;
+  return this.stats.totalScholars < this.subscription.scholarLimit;
 };
 
-organizationSchema.methods.incrementScholarCount = function() {
-  this.subscription.currentCount += 1;
+organizationSchema.methods.isSubscriptionActive = function() {
+  return this.subscription.isActive && 
+         this.subscription.endDate > new Date();
+};
+
+// Update stats
+organizationSchema.methods.updateStats = async function() {
+  const Scholar = mongoose.model('Scholar');
+  const totalScholars = await Scholar.countDocuments({ 
+    organizationId: this._id 
+  });
+  const activeScholars = await Scholar.countDocuments({ 
+    organizationId: this._id,
+    status: 'active'
+  });
+  
+  this.stats.totalScholars = totalScholars;
+  this.stats.activeScholars = activeScholars;
+  
   return this.save();
 };
 
-organizationSchema.methods.isWithinAttendanceWindow = function() {
-  const now = new Date();
-  const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-  return currentTime >= this.settings.attendanceWindow.start && 
-         currentTime <= this.settings.attendanceWindow.end;
-};
+// Pre-save middleware
+organizationSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
+});
 
-// Indexes
-organizationSchema.index({ 'contact.email': 1 });
-organizationSchema.index({ createdAt: -1 });
+const Organization = mongoose.model('Organization', organizationSchema);
 
-export default mongoose.model('Organization', organizationSchema);
+export default Organization;

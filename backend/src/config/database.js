@@ -4,9 +4,8 @@ import logger from '../utils/logger.js';
 
 export const connectDatabase = async () => {
   try {
+    // Remove deprecated options for Mongoose 6+
     const options = {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
     };

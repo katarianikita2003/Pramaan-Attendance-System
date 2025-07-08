@@ -10,22 +10,33 @@ export const requestLogger = (req, res, next) => {
     method: req.method,
     url: req.url,
     ip: req.ip,
-    userAgent: req.get('user-agent')
+    userAgent: req.get('user-agent'),
+    user: req.user?.id
   });
 
-  // Log response
-  res.on('finish', () => {
+  // Capture response
+  const originalSend = res.send;
+  res.send = function(data) {
+    res.send = originalSend;
+    res.send(data);
+    
     const duration = Date.now() - start;
     
+    // Log response
     logger.info({
       type: 'response',
       method: req.method,
       url: req.url,
-      status: res.statusCode,
+      statusCode: res.statusCode,
       duration: `${duration}ms`,
-      contentLength: res.get('content-length')
+      user: req.user?.id
     });
-  });
+  };
 
   next();
 };
+
+// Skip logging for certain paths
+export const skipPaths = ['/health', '/favicon.ico'];
+
+export default requestLogger;

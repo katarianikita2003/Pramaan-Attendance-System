@@ -1,38 +1,71 @@
 // backend/src/middleware/auth.middleware.js
 import jwt from 'jsonwebtoken';
+import Admin from '../models/Admin.js';
+import Scholar from '../models/Scholar.js';
 import logger from '../utils/logger.js';
 
-export const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
+/**
+ * Authenticate JWT token
+ */
+export const authenticateToken = async (req, res, next) => {
   try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ error: 'Access token required' });
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    
+    // Attach user info to request
+    req.user = {
+      id: decoded.userId,
+      organizationId: decoded.organizationId,
+      role: decoded.role,
+      scholarId: decoded.scholarId,
+      permissions: decoded.permissions
+    };
+
+    // Verify user still exists and is active
+    if (decoded.role === 'admin' || decoded.role === 'super_admin' || decoded.role === 'manager') {
+      const admin = await Admin.findById(decoded.userId);
+      if (!admin || !admin.isActive) {
+        return res.status(401).json({ error: 'Account inactive or not found' });
+      }
+    } else if (decoded.role === 'scholar') {
+      const scholar = await Scholar.findById(decoded.userId);
+      if (!scholar || scholar.status !== 'active') {
+        return res.status(401).json({ error: 'Account inactive or not found' });
+      }
+    }
+
     next();
   } catch (error) {
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired' });
     }
-    logger.error('Token verification error:', error);
-    return res.status(403).json({ error: 'Invalid token' });
+    logger.error('Authentication error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
   }
 };
 
-export const requireRole = (...roles) => {
+/**
+ * Require specific role
+ */
+export const requireRole = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (!roles.includes(req.user.role)) {
+    if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({ 
         error: 'Insufficient permissions',
-        required: roles,
+        required: allowedRoles,
         current: req.user.role
       });
     }
@@ -41,26 +74,26 @@ export const requireRole = (...roles) => {
   };
 };
 
-export const requirePermission = (...permissions) => {
-  return (req, res, next) => {
+/**
+ * Require specific permission
+ */
+export const requirePermission = (permission) => {
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const userPermissions = req.user.permissions || [];
-    
-    if (userPermissions.includes('all')) {
-      return next();
+    // Scholars don't have permissions
+    if (req.user.role === 'scholar') {
+      return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    const hasPermission = permissions.some(permission => 
-      userPermissions.includes(permission)
-    );
-
-    if (!hasPermission) {
+    // Check admin permissions
+    const admin = await Admin.findById(req.user.id);
+    if (!admin || !admin.hasPermission(permission)) {
       return res.status(403).json({ 
         error: 'Insufficient permissions',
-        required: permissions
+        required: permission
       });
     }
 
@@ -68,21 +101,62 @@ export const requirePermission = (...permissions) => {
   };
 };
 
-export const optionalAuth = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return next();
-  }
-
+/**
+ * Verify organization access
+ */
+export const verifyOrganizationAccess = async (req, res, next) => {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-  } catch (error) {
-    // Invalid token, but continue without auth
-    logger.debug('Optional auth token invalid:', error.message);
-  }
+    const organizationId = req.params.organizationId || req.body.organizationId;
+    
+    if (!organizationId) {
+      return res.status(400).json({ error: 'Organization ID required' });
+    }
 
-  next();
+    // Super admins can access any organization
+    if (req.user.role === 'super_admin') {
+      return next();
+    }
+
+    // Check if user belongs to the organization
+    if (req.user.organizationId !== organizationId) {
+      return res.status(403).json({ error: 'Access denied to this organization' });
+    }
+
+    next();
+  } catch (error) {
+    logger.error('Organization access verification error:', error);
+    res.status(500).json({ error: 'Access verification failed' });
+  }
+};
+
+/**
+ * Optional authentication - doesn't fail if no token
+ */
+export const optionalAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (token) {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = {
+        id: decoded.userId,
+        organizationId: decoded.organizationId,
+        role: decoded.role
+      };
+    }
+
+    next();
+  } catch (error) {
+    // Continue without authentication
+    next();
+  }
+};
+
+export default {
+  authenticateToken,
+  requireRole,
+  requirePermission,
+  verifyOrganizationAccess,
+  optionalAuth
 };
