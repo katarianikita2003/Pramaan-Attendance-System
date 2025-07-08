@@ -5,15 +5,15 @@ import { Provider as PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Import your screens
-import SplashScreen from './src/screens/SplashScreen';
-import WelcomeScreen from './src/screens/WelcomeScreen';
-import LoginScreen from './src/screens/LoginScreen';
-import RegisterOrgScreen from './src/screens/RegisterOrgScreen';
-import AdminDashboard from './src/screens/AdminDashboard';
-import ScholarDashboard from './src/screens/ScholarDashboard';
-import MarkAttendanceScreen from './src/screens/MarkAttendanceScreen';
-import AddScholarScreen from './src/screens/AddScholarScreen';
-import AttendanceHistoryScreen from './src/screens/AttendanceHistoryScreen';
+import SplashScreen from '../../../PramaanExpo/src/screens/SplashScreen';
+import WelcomeScreen from '../../../PramaanExpo/src/screens/WelcomeScreen';
+import LoginScreen from '../../../PramaanExpo/src/screens/LoginScreen';
+import RegisterOrgScreen from '../../../PramaanExpo/src/screens/RegisterOrgScreen';
+import AdminDashboard from '../../../PramaanExpo/src/screens/AdminDashboard';
+import ScholarDashboard from '../../../PramaanExpo/src/screens/ScholarDashboard';
+import MarkAttendanceScreen from '../../../PramaanExpo/src/screens/MarkAttendanceScreen';
+import AddScholarScreen from '../../../PramaanExpo/src/screens/AddScholarScreen';
+import AttendanceHistoryScreen from '../../../PramaanExpo/src/screens/AttendanceHistoryScreen';
 const Stack = createNativeStackNavigator();
 export default function App() {
   return (
