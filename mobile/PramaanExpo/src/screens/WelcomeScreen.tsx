@@ -1,205 +1,173 @@
-﻿import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-  Dimensions,
-  TouchableOpacity,
-} from 'react-native';
-import { Button } from 'react-native-paper';
+// src/screens/WelcomeScreen.tsx
+import React from 'react';
+import { View, StyleSheet, ScrollView } from 'react-native';
+import { Card, Title, Paragraph, Button, Surface, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width, height } = Dimensions.get('window');
-
-const WelcomeScreen = ({ navigation }: any) => {
+export default function WelcomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.logoContainer}>
-          <View style={styles.logoPlaceholder}>
-            <Text style={styles.logoText}>PRAMAAN</Text>
-          </View>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.header}>
+          <Text style={styles.headerText}>Welcome to Pramaan</Text>
+          <Text style={styles.subHeaderText}>Privacy-First Attendance System</Text>
         </View>
 
-        <Text style={styles.title}>Welcome to Pramaan</Text>
-        <Text style={styles.subtitle}>
-          Secure, Private, and Verifiable Attendance System
-        </Text>
-
-        <View style={styles.featuresContainer}>
-          <View style={styles.feature}>
-            <Text style={styles.featureIcon}>🔐</Text>
-            <Text style={styles.featureText}>Zero-Knowledge Proofs</Text>
-          </View>
-          <View style={styles.feature}>
-            <Text style={styles.featureIcon}>📱</Text>
-            <Text style={styles.featureText}>Biometric Authentication</Text>
-          </View>
-          <View style={styles.feature}>
-            <Text style={styles.featureIcon}>🏢</Text>
-            <Text style={styles.featureText}>Multi-Organization Support</Text>
-          </View>
-        </View>
-
-        <View style={styles.buttonContainer}>
-          <Button
-            mode="contained"
-            onPress={() => navigation.navigate('Login')}
-            style={styles.loginButton}
-            contentStyle={styles.buttonContent}
-          >
-            Login
-          </Button>
-
-          <Button
-            mode="outlined"
-            onPress={() => navigation.navigate('RegisterOrg')}
-            style={styles.registerButton}
-            contentStyle={styles.buttonContent}
-          >
-            Register Organization
-          </Button>
-        </View>
-
-        <Text style={styles.footerText}>
-          Powered by Zero-Knowledge Cryptography
-        </Text>
-      </View>
-    </SafeAreaView>
-
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { Text, Button, Card } from 'react-native-paper';
-
-const WelcomeScreen = ({ navigation }) => {
-  return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Welcome to Pramaan</Text>
-      </View>
-      <View style={styles.content}>
         <Card style={styles.card}>
           <Card.Content>
-            <Text style={styles.cardTitle}>For Organizations</Text>
+            <Title style={styles.cardTitle}>For Organizations</Title>
+            <Paragraph style={styles.cardText}>
+              Register your institution and manage attendance with complete privacy protection
+            </Paragraph>
             <Button
               mode="contained"
               onPress={() => navigation.navigate('RegisterOrg')}
-              style={styles.button}
+              style={styles.primaryButton}
+              contentStyle={styles.buttonContent}
             >
               Register Organization
             </Button>
             <Button
               mode="outlined"
               onPress={() => navigation.navigate('Login', { role: 'admin' })}
-              style={styles.button}
+              style={styles.secondaryButton}
             >
               Admin Login
             </Button>
           </Card.Content>
         </Card>
+
         <Card style={styles.card}>
           <Card.Content>
-            <Text style={styles.cardTitle}>For Scholars</Text>
+            <Title style={styles.cardTitle}>For Scholars</Title>
+            <Paragraph style={styles.cardText}>
+              Mark your attendance securely using biometric authentication
+            </Paragraph>
             <Button
               mode="contained"
               onPress={() => navigation.navigate('Login', { role: 'scholar' })}
-              style={styles.button}
+              style={styles.primaryButton}
+              contentStyle={styles.buttonContent}
             >
               Scholar Login
             </Button>
           </Card.Content>
         </Card>
-      </View>
-    </ScrollView>
+
+        <Surface style={styles.infoSection}>
+          <Title style={styles.infoTitle}>Why Pramaan?</Title>
+          
+          <View style={styles.feature}>
+            <Text style={styles.featureIcon}>🔐</Text>
+            <View style={styles.featureContent}>
+              <Text style={styles.featureTitle}>Zero-Knowledge Proof</Text>
+              <Text style={styles.featureText}>
+                Your biometric data never leaves your device
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.feature}>
+            <Text style={styles.featureIcon}>🌐</Text>
+            <View style={styles.featureContent}>
+              <Text style={styles.featureTitle}>Multi-Organization</Text>
+              <Text style={styles.featureText}>
+                One app for all institutions with data isolation
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.feature}>
+            <Text style={styles.featureIcon}>✅</Text>
+            <View style={styles.featureContent}>
+              <Text style={styles.featureTitle}>Verifiable Attendance</Text>
+              <Text style={styles.featureText}>
+                Generate cryptographic proofs for each attendance
+              </Text>
+            </View>
+          </View>
+        </Surface>
+      </ScrollView>
+    </SafeAreaView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f5f5f5',
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-    justifyContent: 'center',
+  scrollContent: {
+    padding: 16,
+  },
+  header: {
     alignItems: 'center',
-  },
-  logoContainer: {
-    marginBottom: 40,
-  },
-  logoPlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    marginVertical: 20,
+    paddingVertical: 20,
     backgroundColor: '#6C63FF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 12,
   },
-  logoText: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  title: {
+  headerText: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10,
+    color: 'white',
+    marginBottom: 8,
   },
-  subtitle: {
+  subHeaderText: {
     fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  card: {
+    marginBottom: 16,
+    elevation: 3,
+  },
+  cardTitle: {
+    fontSize: 22,
+    marginBottom: 8,
+  },
+  cardText: {
+    marginBottom: 16,
     color: '#666',
-    textAlign: 'center',
-    marginBottom: 40,
   },
-  featuresContainer: {
-    width: '100%',
-    marginBottom: 40,
-  },
-  feature: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  featureIcon: {
-    fontSize: 24,
-    marginRight: 15,
-  },
-  featureText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  buttonContainer: {
-    width: '100%',
-    marginBottom: 30,
-  },
-  loginButton: {
-    marginBottom: 15,
+  primaryButton: {
+    marginBottom: 12,
     backgroundColor: '#6C63FF',
   },
-  registerButton: {
+  secondaryButton: {
     borderColor: '#6C63FF',
   },
   buttonContent: {
-    height: 50,
+    paddingVertical: 6,
   },
-  footerText: {
-    fontSize: 12,
-    color: '#999',
-    position: 'absolute',
-    bottom: 30,
+  infoSection: {
+    padding: 20,
+    borderRadius: 12,
+    elevation: 2,
+    marginTop: 8,
+  },
+  infoTitle: {
+    fontSize: 20,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  feature: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  featureIcon: {
+    fontSize: 32,
+    marginRight: 16,
+  },
+  featureContent: {
+    flex: 1,
+  },
+  featureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  featureText: {
+    fontSize: 14,
+    color: '#666',
   },
 });
-
-export default WelcomeScreen;
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  header: { backgroundColor: '#1976D2', padding: 30, alignItems: 'center' },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#fff' },
-  content: { padding: 20 },
-  card: { marginBottom: 20, elevation: 4 },
-  cardTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
-  button: { marginBottom: 10 },
-});
-
-export default WelcomeScreen;

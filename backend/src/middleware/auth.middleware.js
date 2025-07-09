@@ -12,15 +12,19 @@ export const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
+    logger.info(`Auth check - Header: ${authHeader ? 'Present' : 'Missing'}, Token: ${token ? 'Present' : 'Missing'}`);
+
     if (!token) {
       return res.status(401).json({ error: 'Access token required' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'pramaan-secret-key');
     
+    logger.info(`Token decoded - UserId: ${decoded.id}, Role: ${decoded.role}`);
+
     // Attach user info to request
     req.user = {
-      id: decoded.userId,
+      id: decoded.id,
       organizationId: decoded.organizationId,
       role: decoded.role,
       scholarId: decoded.scholarId,
@@ -29,13 +33,15 @@ export const authenticateToken = async (req, res, next) => {
 
     // Verify user still exists and is active
     if (decoded.role === 'admin' || decoded.role === 'super_admin' || decoded.role === 'manager') {
-      const admin = await Admin.findById(decoded.userId);
-      if (!admin || !admin.isActive) {
+      const admin = await Admin.findById(decoded.id);
+      if (!admin || admin.status !== 'active') {
+        logger.warn(`Admin account inactive or not found: ${decoded.id}`);
         return res.status(401).json({ error: 'Account inactive or not found' });
       }
     } else if (decoded.role === 'scholar') {
-      const scholar = await Scholar.findById(decoded.userId);
+      const scholar = await Scholar.findById(decoded.id);
       if (!scholar || scholar.status !== 'active') {
+        logger.warn(`Scholar account inactive or not found: ${decoded.id}`);
         return res.status(401).json({ error: 'Account inactive or not found' });
       }
     }
@@ -43,9 +49,11 @@ export const authenticateToken = async (req, res, next) => {
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
+      logger.error('Invalid token:', error.message);
       return res.status(401).json({ error: 'Invalid token' });
     }
     if (error.name === 'TokenExpiredError') {
+      logger.error('Token expired');
       return res.status(401).json({ error: 'Token expired' });
     }
     logger.error('Authentication error:', error);
@@ -63,6 +71,7 @@ export const requireRole = (...allowedRoles) => {
     }
 
     if (!allowedRoles.includes(req.user.role)) {
+      logger.warn(`Access denied - Required roles: ${allowedRoles}, User role: ${req.user.role}`);
       return res.status(403).json({ 
         error: 'Insufficient permissions',
         required: allowedRoles,
@@ -91,6 +100,7 @@ export const requirePermission = (permission) => {
     // Check admin permissions
     const admin = await Admin.findById(req.user.id);
     if (!admin || !admin.hasPermission(permission)) {
+      logger.warn(`Permission denied - Required: ${permission}, User: ${req.user.id}`);
       return res.status(403).json({ 
         error: 'Insufficient permissions',
         required: permission
@@ -106,7 +116,7 @@ export const requirePermission = (permission) => {
  */
 export const verifyOrganizationAccess = async (req, res, next) => {
   try {
-    const organizationId = req.params.organizationId || req.body.organizationId;
+    const organizationId = req.params.organizationId || req.body.organizationId || req.user.organizationId;
     
     if (!organizationId) {
       return res.status(400).json({ error: 'Organization ID required' });
@@ -119,6 +129,7 @@ export const verifyOrganizationAccess = async (req, res, next) => {
 
     // Check if user belongs to the organization
     if (req.user.organizationId !== organizationId) {
+      logger.warn(`Organization access denied - User org: ${req.user.organizationId}, Requested org: ${organizationId}`);
       return res.status(403).json({ error: 'Access denied to this organization' });
     }
 
@@ -138,9 +149,9 @@ export const optionalAuth = async (req, res, next) => {
     const token = authHeader && authHeader.split(' ')[1];
 
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'pramaan-secret-key');
       req.user = {
-        id: decoded.userId,
+        id: decoded.id,
         organizationId: decoded.organizationId,
         role: decoded.role
       };

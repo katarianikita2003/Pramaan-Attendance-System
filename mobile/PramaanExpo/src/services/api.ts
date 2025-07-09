@@ -1,211 +1,271 @@
-<<<<<<< Updated upstream
-﻿// mobile/PramaanMobile/src/services/api.ts
+// mobile/PramaanExpo/src/services/api.ts
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
+import { API_BASE_URL, STORAGE_KEYS, API_ENDPOINTS, TIMEOUTS } from '../config/constants';
 
-const BASE_URL = __DEV__ 
-  ? 'http://localhost:5000/api' 
-  : 'https://api.pramaan.app/api';
+// Create axios instance
+const api: AxiosInstance = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: TIMEOUTS.DEFAULT,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
-class ApiService {
-  private token: string | null = null;
-
-  constructor() {
-    this.loadToken();
-  }
-
-  private async loadToken() {
+// Request interceptor to add token
+api.interceptors.request.use(
+  async (config) => {
     try {
-      this.token = await AsyncStorage.getItem('authToken');
-    } catch (error) {
-      console.error('Error loading token:', error);
-    }
-  }
-
-  private async saveToken(token: string) {
-    try {
-      await AsyncStorage.setItem('authToken', token);
-      this.token = token;
-    } catch (error) {
-      console.error('Error saving token:', error);
-    }
-  }
-
-  private async clearToken() {
-    try {
-      await AsyncStorage.removeItem('authToken');
-      this.token = null;
-    } catch (error) {
-      console.error('Error clearing token:', error);
-    }
-  }
-
-  private async request(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<any> {
-    const url = `${BASE_URL}${endpoint}`;
-    
-    const headers: any = {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    };
-
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Request failed');
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
       }
+      
+      console.log('API Request:', {
+        url: config.url,
+        method: config.method,
+        hasToken: !!token,
+      });
+      
+      return config;
+    } catch (error) {
+      console.error('Error setting auth token:', error);
+      return config;
+    }
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
-      return data;
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  async (error: AxiosError) => {
+    console.error('API Error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      message: error.response?.data?.error || error.message,
+    });
+
+    // Handle 401 errors - token might be expired
+    if (error.response?.status === 401 && 
+        error.config?.url !== API_ENDPOINTS.ADMIN_LOGIN && 
+        error.config?.url !== API_ENDPOINTS.SCHOLAR_LOGIN) {
+      // Clear stored data and redirect to login
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.AUTH_TOKEN, 
+        STORAGE_KEYS.USER_DATA, 
+        STORAGE_KEYS.USER_TYPE
+      ]);
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+// Types
+interface LoginResponse {
+  success: boolean;
+  token?: string;
+  user?: any;
+  error?: string;
+}
+
+interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+}
+
+// Auth services
+export const authService = {
+  async registerOrganization(data: any): Promise<any> {
+    try {
+      const response = await api.post('/auth/register-organization', data);
+      
+      if (response.data.success && response.data.token) {
+        // Store token and user data
+        await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, response.data.token);
+        await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+        await AsyncStorage.setItem(STORAGE_KEYS.USER_TYPE, 'admin');
+        await AsyncStorage.setItem(STORAGE_KEYS.ORGANIZATION_CODE, response.data.organizationCode);
+      }
+      
+      return response.data;
     } catch (error: any) {
-=======
-class ApiService {
-  async adminLogin(email, password) {
-    try {
-      const response = await fetch('http://10.0.2.2:5000/api/auth/admin-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      return await response.json();
-    } catch (error) {
->>>>>>> Stashed changes
-      console.error('API Error:', error);
       throw error;
     }
-  }
-<<<<<<< Updated upstream
+  },
 
-  // Auth endpoints
-  async adminLogin(email: string, password: string) {
-    const response = await this.request('/auth/admin-login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (response.token) {
-      await this.saveToken(response.token);
+  async adminLogin(email: string, password: string): Promise<LoginResponse> {
+    try {
+      const response = await api.post(API_ENDPOINTS.ADMIN_LOGIN, { email, password });
+      
+      if (response.data.success && response.data.token) {
+        // Store token and user data
+        await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, response.data.token);
+        await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+        await AsyncStorage.setItem(STORAGE_KEYS.USER_TYPE, 'admin');
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      throw error;
     }
+  },
 
-    return response;
-  }
-
-  async scholarLogin(scholarId: string, organizationCode: string, biometricData: any) {
-    const response = await this.request('/auth/scholar-login', {
-      method: 'POST',
-      body: JSON.stringify({ scholarId, organizationCode, biometricData }),
-    });
-
-    if (response.token) {
-      await this.saveToken(response.token);
+  async scholarLogin(email: string, password: string, organizationCode: string): Promise<LoginResponse> {
+    try {
+      const response = await api.post(API_ENDPOINTS.SCHOLAR_LOGIN, {
+        email,
+        password,
+        organizationCode,
+      });
+      
+      if (response.data.success && response.data.token) {
+        // Store token and user data
+        await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, response.data.token);
+        await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+        await AsyncStorage.setItem(STORAGE_KEYS.USER_TYPE, 'scholar');
+        await AsyncStorage.setItem(STORAGE_KEYS.ORGANIZATION_CODE, organizationCode);
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      throw error;
     }
+  },
 
-    return response;
-  }
+  async logout(): Promise<boolean> {
+    try {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.AUTH_TOKEN, 
+        STORAGE_KEYS.USER_DATA, 
+        STORAGE_KEYS.USER_TYPE,
+        STORAGE_KEYS.ORGANIZATION_CODE
+      ]);
+      return true;
+    } catch (error) {
+      console.error('Logout error:', error);
+      return false;
+    }
+  },
 
-  async logout() {
-    await this.clearToken();
-  }
+  async getCurrentUser() {
+    try {
+      const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+      return userData ? JSON.parse(userData) : null;
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      return null;
+    }
+  },
+};
 
-  // Organization endpoints
-  async registerOrganization(data: any) {
-    return this.request('/organizations/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+// Organization services
+export const organizationService = {
+  async getDetails(): Promise<ApiResponse> {
+    const response = await api.get(API_ENDPOINTS.ORGANIZATION_DETAILS);
+    return response.data;
+  },
 
-  async getOrganizationDetails() {
-    return this.request('/organizations/details');
-  }
+  async updateSettings(settings: any): Promise<ApiResponse> {
+    const response = await api.put(API_ENDPOINTS.ORGANIZATION_SETTINGS, settings);
+    return response.data;
+  },
 
-  // Scholar endpoints
-  async addScholar(data: any) {
-    return this.request('/scholars/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+  async getBoundaries(): Promise<ApiResponse> {
+    const response = await api.get(API_ENDPOINTS.ORGANIZATION_BOUNDARIES);
+    return response.data;
+  },
+};
 
-  async getScholarProfile(id: string) {
-    return this.request(`/scholars/${id}/profile`);
-  }
+// Scholar services
+export const scholarService = {
+  async getStats(): Promise<ApiResponse> {
+    const response = await api.get(API_ENDPOINTS.SCHOLAR_STATS);
+    return response.data;
+  },
 
-  async enrollBiometric(scholarId: string, type: string, biometricData: any) {
-    return this.request(`/scholars/${scholarId}/biometric/enroll`, {
-      method: 'POST',
-      body: JSON.stringify({ type, biometricData }),
-    });
-  }
+  async getProfile(): Promise<ApiResponse> {
+    const response = await api.get(API_ENDPOINTS.SCHOLAR_PROFILE);
+    return response.data;
+  },
 
-  // Attendance endpoints
-  async markAttendance(data: any) {
-    return this.request('/attendance/mark', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+  async updateProfile(data: any): Promise<ApiResponse> {
+    const response = await api.put(API_ENDPOINTS.SCHOLAR_PROFILE, data);
+    return response.data;
+  },
 
-  async getAttendanceHistory(scholarId: string, params: any = {}) {
-    const queryString = new URLSearchParams(params).toString();
-    return this.request(`/attendance/history/${scholarId}?${queryString}`);
-  }
+  async getAttendanceHistory(): Promise<ApiResponse> {
+    const response = await api.get(API_ENDPOINTS.SCHOLAR_ATTENDANCE_HISTORY);
+    return response.data;
+  },
+};
 
-  async getAttendanceStats(scholarId: string) {
-    return this.request(`/attendance/stats/${scholarId}`);
-  }
+// Attendance services
+export const attendanceService = {
+  async markAttendance(data: any): Promise<ApiResponse> {
+    const response = await api.post('/attendance/mark', data);
+    return response.data;
+  },
 
-  async generateCertificate(scholarId: string, period: any) {
-    return this.request('/attendance/certificate', {
-      method: 'POST',
-      body: JSON.stringify({ scholarId, period }),
-    });
-  }
+  async generateProof(data: any): Promise<ApiResponse> {
+    const response = await api.post('/attendance/generate-proof', data);
+    return response.data;
+  },
 
-  // Admin endpoints
-  async getOrganizationStats() {
-    return this.request('/admin/stats');
-  }
+  async verifyProof(proofId: string): Promise<ApiResponse> {
+    const response = await api.get(`/attendance/verify/${proofId}`);
+    return response.data;
+  },
 
-  async getScholars(params: any = {}) {
-    const queryString = new URLSearchParams(params).toString();
-    return this.request(`/admin/scholars?${queryString}`);
-  }
-
-  async getAttendanceReports(params: any = {}) {
-    const queryString = new URLSearchParams(params).toString();
-    return this.request(`/admin/reports?${queryString}`);
-  }
-}
-
-export default new ApiService();
-=======
+  async getRecords(filters = {}): Promise<ApiResponse> {
+    const response = await api.get('/attendance/records', { params: filters });
+    return response.data;
+  },
   
-  async registerOrganization(data) {
-    try {
-      const response = await fetch('http://10.0.2.2:5000/api/organizations/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      return await response.json();
-    } catch (error) {
-      console.error('API Error:', error);
-      throw error;
-    }
-  }
-}
+  async getHistory(params = {}): Promise<ApiResponse> {
+    const response = await api.get('/attendance/history', { params });
+    return response.data;
+  },
+};
 
-export default new ApiService();
->>>>>>> Stashed changes
+// Admin services
+export const adminService = {
+  async getDashboard(): Promise<ApiResponse> {
+    const response = await api.get(API_ENDPOINTS.ADMIN_DASHBOARD);
+    return response.data;
+  },
+
+  async getScholars(): Promise<ApiResponse> {
+    const response = await api.get(API_ENDPOINTS.ADMIN_SCHOLARS);
+    return response.data;
+  },
+
+  async addScholar(scholarData: any): Promise<ApiResponse> {
+    const response = await api.post(API_ENDPOINTS.ADMIN_SCHOLARS, scholarData);
+    return response.data;
+  },
+
+  async updateScholar(scholarId: string, data: any): Promise<ApiResponse> {
+    const response = await api.put(`${API_ENDPOINTS.ADMIN_SCHOLARS}/${scholarId}`, data);
+    return response.data;
+  },
+
+  async deleteScholar(scholarId: string): Promise<ApiResponse> {
+    const response = await api.delete(`${API_ENDPOINTS.ADMIN_SCHOLARS}/${scholarId}`);
+    return response.data;
+  },
+
+  async getAttendanceReports(filters = {}): Promise<ApiResponse> {
+    const response = await api.get(API_ENDPOINTS.ADMIN_REPORTS, { params: filters });
+    return response.data;
+  },
+};
+
+export default api;

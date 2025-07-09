@@ -28,7 +28,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import biometricService from '../services/biometric.service';
 import zkpService from '../services/zkp.service';
 import api from '../services/api';
-import { useAuth } from '../../App';
+
+// Remove the import from App.tsx to avoid circular dependency
+// Use navigation prop instead
 
 interface AttendanceProof {
   id: string;
@@ -44,7 +46,7 @@ interface AttendanceProof {
 
 export default function MarkAttendanceScreen({ navigation }) {
   const theme = useTheme();
-  const { user } = useAuth();
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState(null);
   const [attendanceProof, setAttendanceProof] = useState<AttendanceProof | null>(null);
@@ -52,9 +54,18 @@ export default function MarkAttendanceScreen({ navigation }) {
   const [verificationStatus, setVerificationStatus] = useState('');
 
   useEffect(() => {
+    loadUserData();
     checkLocationPermission();
   }, []);
 
+  const loadUserData = async () => {
+    const userData = await AsyncStorage.getItem('userData');
+    if (userData) {
+      setUser(JSON.parse(userData));
+    }
+  };
+
+  // Rest of the component remains the same...
   const checkLocationPermission = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -67,7 +78,6 @@ export default function MarkAttendanceScreen({ navigation }) {
         return;
       }
 
-      // Get current location
       const currentLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
@@ -88,7 +98,6 @@ export default function MarkAttendanceScreen({ navigation }) {
     setVerificationStatus('Authenticating with biometrics...');
 
     try {
-      // Step 1: Biometric authentication
       const biometricResult = await biometricService.authenticate(
         'Authenticate to mark attendance'
       );
@@ -99,13 +108,11 @@ export default function MarkAttendanceScreen({ navigation }) {
 
       setVerificationStatus('Generating zero-knowledge proof...');
 
-      // Step 2: Get stored commitment
       const commitment = await AsyncStorage.getItem('biometricCommitment');
       if (!commitment) {
         throw new Error('No biometric registration found');
       }
 
-      // Step 3: Generate ZKP attendance proof
       const zkpProof = await zkpService.generateAttendanceProof(
         {
           type: biometricResult.type,
@@ -118,7 +125,6 @@ export default function MarkAttendanceScreen({ navigation }) {
 
       setVerificationStatus('Submitting attendance proof...');
 
-      // Step 4: Submit to backend
       const response = await api.post('/attendance/mark', {
         proof: zkpProof.proof,
         publicSignals: zkpProof.publicSignals,
@@ -130,7 +136,6 @@ export default function MarkAttendanceScreen({ navigation }) {
       });
 
       if (response.data.success) {
-        // Generate verifiable credential
         const credential = await zkpService.generateVerifiableCredential(zkpProof);
         
         setAttendanceProof({
@@ -174,24 +179,12 @@ export default function MarkAttendanceScreen({ navigation }) {
 
   const shareProof = async () => {
     if (!attendanceProof) return;
-
-    try {
-      // In a real app, implement sharing functionality
-      Alert.alert('Share Proof', 'Proof sharing functionality would be implemented here.');
-    } catch (error) {
-      console.error('Share error:', error);
-    }
+    Alert.alert('Share Proof', 'Proof sharing functionality would be implemented here.');
   };
 
   const downloadProof = async () => {
     if (!attendanceProof) return;
-
-    try {
-      // In a real app, implement download functionality
-      Alert.alert('Download Proof', 'Proof has been saved to your device.');
-    } catch (error) {
-      console.error('Download error:', error);
-    }
+    Alert.alert('Download Proof', 'Proof has been saved to your device.');
   };
 
   return (

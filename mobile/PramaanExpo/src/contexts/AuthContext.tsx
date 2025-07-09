@@ -1,134 +1,110 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+// mobile/PramaanExpo/src/contexts/AuthContext.js
+import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '../services/api';
+import { authService } from '../services/api';
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: 'admin' | 'scholar';
-  organizationId?: string;
-  scholarId?: string;
-}
-
-interface Organization {
-  id: string;
-  name: string;
-  code: string;
-}
-
-interface AuthContextType {
-  user: User | null;
-  organization: Organization | null;
-  loading: boolean;
-  isAuthenticated: boolean;
-  login: (type: 'admin' | 'scholar', credentials: any) => Promise<void>;
-  logout: () => Promise<void>;
-  updateUser: (user: User) => void;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext({});
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [organization, setOrganization] = useState<Organization | null>(null);
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [userType, setUserType] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
+  // Check for existing session on mount
   useEffect(() => {
-    loadStoredAuth();
+    checkAuthStatus();
   }, []);
 
-  const loadStoredAuth = async () => {
+  const checkAuthStatus = async () => {
     try {
-      const storedUser = await AsyncStorage.getItem('user');
-      const storedOrg = await AsyncStorage.getItem('organization');
-      const token = await AsyncStorage.getItem('authToken');
+      setLoading(true);
+      const [token, userData, savedUserType] = await Promise.all([
+        AsyncStorage.getItem('authToken'),
+        AsyncStorage.getItem('userData'),
+        AsyncStorage.getItem('userType'),
+      ]);
 
-      if (storedUser && token) {
-        setUser(JSON.parse(storedUser));
-        if (storedOrg) {
-          setOrganization(JSON.parse(storedOrg));
-        }
+      if (token && userData) {
+        setUser(JSON.parse(userData));
+        setUserType(savedUserType);
       }
     } catch (error) {
-      console.error('Error loading stored auth:', error);
+      console.error('Error checking auth status:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const login = async (type: 'admin' | 'scholar', credentials: any) => {
+  const login = async (email, password, organizationCode = null, type = 'admin') => {
     try {
+      setLoading(true);
+      setError(null);
+
       let response;
-      
       if (type === 'admin') {
-        response = await api.adminLogin(credentials.email, credentials.password);
+        response = await authService.adminLogin(email, password);
       } else {
-        response = await api.scholarLogin(
-          credentials.scholarId,
-          credentials.organizationCode,
-          credentials.biometricData
-        );
+        response = await authService.scholarLogin(email, password, organizationCode);
       }
 
-      const userData: User = {
-        id: response.admin?.id || response.scholar?.id,
-        name: response.admin?.name || response.scholar?.name,
-        email: response.admin?.email || response.scholar?.email,
-        role: type,
-        organizationId: response.organization?.id,
-        scholarId: response.scholar?.scholarId
-      };
-
-      setUser(userData);
-      setOrganization(response.organization);
-
-      // Store auth data
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
-      await AsyncStorage.setItem('organization', JSON.stringify(response.organization));
-      await AsyncStorage.setItem('authToken', response.token);
+      if (response.success) {
+        setUser(response.user);
+        setUserType(response.user.userType || type);
+        return { success: true };
+      } else {
+        setError(response.error || 'Login failed');
+        return { success: false, error: response.error };
+      }
     } catch (error) {
       console.error('Login error:', error);
-      throw error;
+      const errorMessage = error.response?.data?.error || 'Login failed. Please try again.';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
     }
   };
 
   const logout = async () => {
     try {
-      await api.logout();
-      await AsyncStorage.multiRemove(['user', 'organization', 'authToken']);
+      setLoading(true);
+      await authService.logout();
       setUser(null);
-      setOrganization(null);
+      setUserType(null);
+      setError(null);
     } catch (error) {
       console.error('Logout error:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const updateUser = (updatedUser: User) => {
-    setUser(updatedUser);
-    AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+  const updateUser = (userData) => {
+    setUser(userData);
+    AsyncStorage.setItem('userData', JSON.stringify(userData));
   };
 
-  const value: AuthContextType = {
+  const value = {
     user,
-    organization,
+    userType,
     loading,
-    isAuthenticated: !!user,
+    error,
     login,
     logout,
-    updateUser
+    checkAuthStatus,
+    updateUser,
+    isAuthenticated: !!user,
+    isAdmin: userType === 'admin',
+    isScholar: userType === 'scholar',
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

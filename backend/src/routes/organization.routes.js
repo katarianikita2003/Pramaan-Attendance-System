@@ -1,23 +1,64 @@
 // backend/src/routes/organization.routes.js
 import express from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import Organization from '../models/Organization.js';
 import Admin from '../models/Admin.js';
+import Scholar from '../models/Scholar.js';
+import { authenticateToken, requireRole, verifyOrganizationAccess } from '../middleware/auth.middleware.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
 
-// Organization self-registration
-router.post('/register',
+// Get organization details
+router.get('/details', authenticateToken, async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+    
+    if (!organizationId) {
+      return res.status(400).json({ error: 'Organization ID not found' });
+    }
+
+    const organization = await Organization.findById(organizationId)
+      .select('-__v')
+      .lean();
+
+    if (!organization) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    // Get stats
+    const [adminCount, scholarCount] = await Promise.all([
+      Admin.countDocuments({ organizationId: organization._id, status: 'active' }),
+      Scholar.countDocuments({ organizationId: organization._id, status: 'active' })
+    ]);
+
+    res.json({
+      success: true,
+      organization: {
+        ...organization,
+        stats: {
+          admins: adminCount,
+          scholars: scholarCount,
+          maxScholars: organization.subscription?.maxScholars || 100
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get organization details error:', error);
+    res.status(500).json({ error: 'Failed to fetch organization details' });
+  }
+});
+
+// Update organization settings
+router.put('/settings', 
+  authenticateToken, 
+  requireRole('admin', 'super_admin'),
   [
-    body('organizationName').notEmpty().trim(),
-    body('adminName').notEmpty().trim(),
-    body('adminEmail').isEmail().normalizeEmail(),
-    body('adminPassword').isLength({ min: 8 }),
-    body('address').notEmpty(),
-    body('contactNumber').notEmpty()
+    body('name').optional().trim().notEmpty(),
+    body('contact.email').optional().isEmail(),
+    body('contact.phone').optional().trim(),
+    body('contact.address').optional().trim(),
+    body('location.radius').optional().isInt({ min: 50, max: 5000 })
   ],
   async (req, res) => {
     try {
@@ -26,125 +67,128 @@ router.post('/register',
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const {
-        organizationName,
-        adminName,
-        adminEmail,
-        adminPassword,
-        address,
-        contactNumber,
-        type = 'educational'
-      } = req.body;
+      const organizationId = req.user.organizationId;
+      const updates = req.body;
 
-      // Check if organization or admin already exists
-      const existingOrg = await Organization.findOne({ 
-        $or: [
-          { name: organizationName },
-          { 'contact.email': adminEmail }
-        ]
-      });
-
-      if (existingOrg) {
-        return res.status(400).json({ 
-          error: 'Organization or email already registered' 
-        });
-      }
-
-      // Generate unique organization code
-      const orgCode = await generateUniqueOrgCode(organizationName);
-
-      // Create organization
-      const organization = new Organization({
-        name: organizationName,
-        code: orgCode,
-        type,
-        contact: {
-          email: adminEmail,
-          phone: contactNumber,
-          address
-        },
-        subscription: {
-          plan: 'free',
-          scholarLimit: 50,
-          startDate: new Date(),
-          endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year
-        }
-      });
-
-      await organization.save();
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(adminPassword, 10);
-
-      // Create admin
-      const admin = new Admin({
-        organizationId: organization._id,
-        personalInfo: {
-          name: adminName,
-          email: adminEmail
-        },
-        credentials: {
-          password: hashedPassword
-        },
-        role: 'admin',
-        permissions: ['all']
-      });
-
-      await admin.save();
-
-      // Generate JWT token
-      const token = jwt.sign(
-        { 
-          userId: admin._id,
-          organizationId: organization._id,
-          role: 'admin'
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
+      const organization = await Organization.findByIdAndUpdate(
+        organizationId,
+        { $set: updates },
+        { new: true, runValidators: true }
       );
 
-      logger.info(`New organization registered: ${organizationName}`);
+      if (!organization) {
+        return res.status(404).json({ error: 'Organization not found' });
+      }
 
-      res.status(201).json({
-        message: 'Organization registered successfully',
-        organization: {
-          id: organization._id,
-          name: organization.name,
-          code: organization.code
-        },
-        admin: {
-          id: admin._id,
-          name: adminName,
-          email: adminEmail
-        },
-        token
+      logger.info(`Organization settings updated: ${organization.code}`);
+
+      res.json({
+        success: true,
+        organization
       });
-
     } catch (error) {
-      logger.error('Organization registration error:', error);
-      res.status(500).json({ error: 'Registration failed' });
+      logger.error('Update organization settings error:', error);
+      res.status(500).json({ error: 'Failed to update settings' });
     }
   }
 );
 
-// Helper function to generate unique organization code
-async function generateUniqueOrgCode(orgName) {
-  const baseCode = orgName
-    .split(' ')
-    .map(word => word[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 3);
-  
-  let code = baseCode;
-  let counter = 1;
-  
-  while (await Organization.findOne({ code })) {
-    code = `${baseCode}${counter}`;
-    counter++;
+// Get organization boundaries
+router.get('/boundaries', authenticateToken, async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+
+    const organization = await Organization.findById(organizationId)
+      .select('location boundaries')
+      .lean();
+
+    if (!organization) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    res.json({
+      success: true,
+      location: organization.location,
+      boundaries: organization.boundaries
+    });
+  } catch (error) {
+    logger.error('Get organization boundaries error:', error);
+    res.status(500).json({ error: 'Failed to fetch boundaries' });
   }
-  
-  return code.padEnd(6, Math.random().toString(36).toUpperCase().slice(2));
-}
+});
+
+// Update organization boundaries
+router.put('/boundaries',
+  authenticateToken,
+  requireRole('admin', 'super_admin'),
+  [
+    body('boundaries').isArray(),
+    body('boundaries.*.latitude').isFloat({ min: -90, max: 90 }),
+    body('boundaries.*.longitude').isFloat({ min: -180, max: 180 }),
+    body('location.coordinates.latitude').optional().isFloat({ min: -90, max: 90 }),
+    body('location.coordinates.longitude').optional().isFloat({ min: -180, max: 180 }),
+    body('location.radius').optional().isInt({ min: 50, max: 5000 })
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const organizationId = req.user.organizationId;
+      const { boundaries, location } = req.body;
+
+      const updateData = { boundaries };
+      if (location) {
+        updateData.location = location;
+      }
+
+      const organization = await Organization.findByIdAndUpdate(
+        organizationId,
+        { $set: updateData },
+        { new: true, runValidators: true }
+      );
+
+      if (!organization) {
+        return res.status(404).json({ error: 'Organization not found' });
+      }
+
+      logger.info(`Organization boundaries updated: ${organization.code}`);
+
+      res.json({
+        success: true,
+        boundaries: organization.boundaries,
+        location: organization.location
+      });
+    } catch (error) {
+      logger.error('Update organization boundaries error:', error);
+      res.status(500).json({ error: 'Failed to update boundaries' });
+    }
+  }
+);
+
+// Get subscription details
+router.get('/subscription', authenticateToken, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+
+    const organization = await Organization.findById(organizationId)
+      .select('subscription')
+      .lean();
+
+    if (!organization) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    res.json({
+      success: true,
+      subscription: organization.subscription
+    });
+  } catch (error) {
+    logger.error('Get subscription details error:', error);
+    res.status(500).json({ error: 'Failed to fetch subscription details' });
+  }
+});
 
 export default router;

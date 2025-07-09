@@ -1,267 +1,196 @@
-// ===== backend/src/routes/admin.routes.js =====
+// backend/src/routes/admin.routes.js
 import express from 'express';
-import Organization from '../models/Organization.js';
-import Scholar from '../models/Scholar.js';
-import AttendanceProof from '../models/AttendanceProof.js';
 import { authenticateToken, requireRole } from '../middleware/auth.middleware.js';
-import { CertificateService } from '../services/certificate.service.js';
+import Admin from '../models/Admin.js';
+import Scholar from '../models/Scholar.js';
+import Organization from '../models/Organization.js';
+import AttendanceProof from '../models/AttendanceProof.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
-const certificateService = new CertificateService();
+
+// Get admin dashboard data
+router.get('/dashboard', authenticateToken, requireRole('admin'), async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+    
+    // Get organization details
+    const organization = await Organization.findById(organizationId);
+    if (!organization) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    // Get today's date range
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Get statistics
+    const [totalScholars, presentToday, totalAttendanceToday] = await Promise.all([
+      Scholar.countDocuments({ 
+        organizationId: organizationId,
+        status: 'active' 
+      }),
+      AttendanceProof.distinct('scholarId', {
+        organizationId: organizationId,
+        'checkIn.timestamp': { $gte: today, $lt: tomorrow },
+        isVerified: true
+      }),
+      AttendanceProof.countDocuments({
+        organizationId: organizationId,
+        'checkIn.timestamp': { $gte: today, $lt: tomorrow }
+      })
+    ]);
+
+    const presentCount = presentToday.length;
+    const absentToday = totalScholars - presentCount;
+    const attendanceRate = totalScholars > 0 
+      ? Math.round((presentCount / totalScholars) * 100) 
+      : 0;
+
+    res.json({
+      success: true,
+      stats: {
+        totalScholars,
+        presentToday: presentCount,
+        absentToday,
+        attendanceRate,
+        organizationName: organization.name,
+        organizationCode: organization.code
+      }
+    });
+  } catch (error) {
+    logger.error('Dashboard error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to load dashboard data' 
+    });
+  }
+});
 
 // Get all scholars
-router.get('/scholars', 
-  authenticateToken, 
-  requireRole('admin'),
-  async (req, res) => {
-    try {
-      const { page = 1, limit = 20, search, department, status } = req.query;
-      const organizationId = req.user.organizationId;
-      
-      const query = { organizationId };
-      
-      if (search) {
-        query.$or = [
-          { scholarId: new RegExp(search, 'i') },
-          { 'personalInfo.name': new RegExp(search, 'i') },
-          { 'personalInfo.email': new RegExp(search, 'i') }
-        ];
-      }
-      
-      if (department) {
-        query['academicInfo.department'] = department;
-      }
-      
-      if (status) {
-        query['status.isActive'] = status === 'active';
-      }
-      
-      const scholars = await Scholar.find(query)
-        .sort({ 'personalInfo.name': 1 })
-        .limit(limit * 1)
-        .skip((page - 1) * limit)
-        .select('-biometricData.salts -biometricData.globalHash');
-      
-      const total = await Scholar.countDocuments(query);
-      
-      res.json({
-        scholars,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      });
-    } catch (error) {
-      logger.error('Get scholars error:', error);
-      res.status(500).json({ error: 'Failed to fetch scholars' });
-    }
-  }
-);
+router.get('/scholars', authenticateToken, requireRole('admin'), async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+    const { page = 1, limit = 20, search = '' } = req.query;
 
-// Get daily report
-router.get('/reports/daily',
-  authenticateToken,
-  requireRole('admin'),
-  async (req, res) => {
-    try {
-      const { date = new Date().toISOString().split('T')[0] } = req.query;
-      const organizationId = req.user.organizationId;
-      
-      const startDate = new Date(date);
-      startDate.setHours(0, 0, 0, 0);
-      
-      const endDate = new Date(date);
-      endDate.setHours(23, 59, 59, 999);
-      
-      // Get attendance statistics
-      const stats = await AttendanceProof.aggregate([
-        {
-          $match: {
-            organizationId: mongoose.Types.ObjectId(organizationId),
-            date: { $gte: startDate, $lte: endDate }
-          }
-        },
-        {
-          $group: {
-            _id: '$status',
-            count: { $sum: 1 },
-            scholars: { $push: '$scholarId' }
-          }
-        }
-      ]);
-      
-      // Get detailed attendance records
-      const attendance = await AttendanceProof.find({
-        organizationId,
-        date: { $gte: startDate, $lte: endDate }
+    const query = { 
+      organizationId: organizationId,
+      ...(search && {
+        $or: [
+          { 'personalInfo.name': { $regex: search, $options: 'i' } },
+          { 'personalInfo.email': { $regex: search, $options: 'i' } },
+          { scholarId: { $regex: search, $options: 'i' } }
+        ]
       })
-      .populate('scholarId', 'scholarId personalInfo.name academicInfo.department')
-      .sort({ 'checkIn.timestamp': 1 });
-      
-      // Calculate summary
-      const summary = {
-        date,
-        total: 0,
-        present: 0,
-        absent: 0,
-        late: 0,
-        halfDay: 0
-      };
-      
-      stats.forEach(stat => {
-        summary[stat._id] = stat.count;
-        summary.total += stat.count;
-      });
-      
-      // Get absent scholars
-      const allScholars = await Scholar.find({ 
-        organizationId, 
-        'status.isActive': true 
-      }).select('_id');
-      
-      const presentScholarIds = attendance.map(a => a.scholarId._id.toString());
-      const absentScholars = allScholars.filter(
-        s => !presentScholarIds.includes(s._id.toString())
-      );
-      
-      summary.absent = absentScholars.length;
-      
-      res.json({
-        summary,
-        attendance: attendance.map(record => ({
-          scholar: {
-            id: record.scholarId._id,
-            scholarId: record.scholarId.scholarId,
-            name: record.scholarId.personalInfo.name,
-            department: record.scholarId.academicInfo.department
-          },
-          checkIn: record.checkIn?.timestamp,
-          checkOut: record.checkOut?.timestamp,
-          duration: record.duration,
-          status: record.status,
-          flags: record.flags
-        })),
-        absentCount: summary.absent
-      });
-    } catch (error) {
-      logger.error('Daily report error:', error);
-      res.status(500).json({ error: 'Failed to generate daily report' });
-    }
-  }
-);
+    };
 
-// Get attendance analytics
-router.get('/analytics/attendance',
-  authenticateToken,
-  requireRole('admin'),
-  async (req, res) => {
-    try {
-      const { startDate, endDate } = req.query;
-      const organizationId = req.user.organizationId;
-      
-      if (!startDate || !endDate) {
-        return res.status(400).json({ 
-          error: 'Start date and end date are required' 
-        });
+    const scholars = await Scholar.find(query)
+      .select('-credentials.passwordHash')
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    const total = await Scholar.countDocuments(query);
+
+    // Get today's attendance for each scholar
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const scholarIds = scholars.map(s => s._id);
+    const todayAttendance = await AttendanceProof.find({
+      scholarId: { $in: scholarIds },
+      'checkIn.timestamp': { $gte: today, $lt: tomorrow },
+      isVerified: true
+    }).select('scholarId');
+
+    const presentScholarIds = new Set(todayAttendance.map(a => a.scholarId.toString()));
+
+    const scholarsWithAttendance = scholars.map(scholar => ({
+      id: scholar._id,
+      scholarId: scholar.scholarId,
+      name: scholar.personalInfo.name,
+      email: scholar.personalInfo.email,
+      department: scholar.academicInfo?.department || 'N/A',
+      status: scholar.status,
+      presentToday: presentScholarIds.has(scholar._id.toString()),
+      attendancePercentage: scholar.attendanceStats?.attendancePercentage || 0,
+      totalDays: scholar.attendanceStats?.totalDays || 0
+    }));
+
+    res.json({
+      success: true,
+      scholars: scholarsWithAttendance,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
       }
-      
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      
-      // Daily attendance trend
-      const dailyTrend = await AttendanceProof.aggregate([
-        {
-          $match: {
-            organizationId: mongoose.Types.ObjectId(organizationId),
-            date: { $gte: start, $lte: end }
-          }
-        },
-        {
-          $group: {
-            _id: {
-              date: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
-              status: "$status"
-            },
-            count: { $sum: 1 }
-          }
-        },
-        {
-          $sort: { "_id.date": 1 }
-        }
-      ]);
-      
-      // Department-wise statistics
-      const departmentStats = await AttendanceProof.aggregate([
-        {
-          $match: {
-            organizationId: mongoose.Types.ObjectId(organizationId),
-            date: { $gte: start, $lte: end }
-          }
-        },
-        {
-          $lookup: {
-            from: 'scholars',
-            localField: 'scholarId',
-            foreignField: '_id',
-            as: 'scholar'
-          }
-        },
-        {
-          $unwind: '$scholar'
-        },
-        {
-          $group: {
-            _id: '$scholar.academicInfo.department',
-            totalDays: { $sum: 1 },
-            presentDays: {
-              $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] }
-            },
-            lateDays: {
-              $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] }
-            }
-          }
-        }
-      ]);
-      
-      // Peak hours analysis
-      const peakHours = await AttendanceProof.aggregate([
-        {
-          $match: {
-            organizationId: mongoose.Types.ObjectId(organizationId),
-            date: { $gte: start, $lte: end }
-          }
-        },
-        {
-          $project: {
-            hour: { $hour: '$checkIn.timestamp' }
-          }
-        },
-        {
-          $group: {
-            _id: '$hour',
-            count: { $sum: 1 }
-          }
-        },
-        {
-          $sort: { _id: 1 }
-        }
-      ]);
-      
-      res.json({
-        period: { startDate, endDate },
-        dailyTrend,
-        departmentStats,
-        peakHours,
-        generated: new Date()
-      });
-    } catch (error) {
-      logger.error('Analytics error:', error);
-      res.status(500).json({ error: 'Failed to generate analytics' });
-    }
+    });
+  } catch (error) {
+    logger.error('Get scholars error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch scholars' 
+    });
   }
-);
+});
+
+// Get attendance reports
+router.get('/reports/attendance', authenticateToken, requireRole('admin'), async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+    const { 
+      startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 
+      endDate = new Date(),
+      department = 'all',
+      status = 'all'
+    } = req.query;
+
+    const query = {
+      organizationId: organizationId,
+      'checkIn.timestamp': {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      }
+    };
+
+    const attendanceRecords = await AttendanceProof.find(query)
+      .populate('scholarId', 'personalInfo.name scholarId academicInfo.department')
+      .sort({ 'checkIn.timestamp': -1 })
+      .limit(100);
+
+    const records = attendanceRecords.map(record => ({
+      date: record.checkIn.timestamp,
+      scholarId: record.scholarId?.scholarId || 'Unknown',
+      name: record.scholarId?.personalInfo?.name || 'Unknown',
+      department: record.scholarId?.academicInfo?.department || 'N/A',
+      time: new Date(record.checkIn.timestamp).toLocaleTimeString(),
+      status: 'present',
+      proofId: record.proofId
+    }));
+
+    res.json({
+      success: true,
+      records,
+      filters: {
+        startDate,
+        endDate,
+        department,
+        status
+      }
+    });
+  } catch (error) {
+    logger.error('Get attendance reports error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch attendance reports' 
+    });
+  }
+});
 
 export default router;

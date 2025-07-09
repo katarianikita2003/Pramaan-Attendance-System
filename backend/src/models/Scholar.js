@@ -1,36 +1,32 @@
 // backend/src/models/Scholar.js
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 
 const scholarSchema = new mongoose.Schema({
-  organizationId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Organization',
-    required: true,
-    index: true
-  },
   scholarId: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
+    uppercase: true,
+    trim: true
   },
   personalInfo: {
     name: {
       type: String,
-      required: [true, 'Name is required'],
+      required: true,
       trim: true
     },
     email: {
       type: String,
-      required: [true, 'Email is required'],
-      unique: true,
+      required: true,
       lowercase: true,
-      trim: true
+      trim: true,
+      unique: true
     },
     phone: {
       type: String,
-      required: true
+      required: true,
+      trim: true
     },
     dateOfBirth: Date,
     gender: {
@@ -41,66 +37,59 @@ const scholarSchema = new mongoose.Schema({
       street: String,
       city: String,
       state: String,
+      country: String,
       pincode: String
-    },
-    profilePicture: String
-  },
-  credentials: {
-    password: {
-      type: String,
-      required: true,
-      minlength: 6,
-      select: false
-    },
-    pin: {
-      type: String,
-      select: false
-    }
-  },
-  biometricData: {
-    faceEncodings: [{
-      encoding: {
-        type: String,
-        select: false
-      },
-      capturedAt: {
-        type: Date,
-        default: Date.now
-      }
-    }],
-    fingerprintHashes: [{
-      hash: {
-        type: String,
-        select: false
-      },
-      finger: {
-        type: String,
-        enum: ['thumb', 'index', 'middle', 'ring', 'little']
-      },
-      hand: {
-        type: String,
-        enum: ['left', 'right']
-      },
-      capturedAt: {
-        type: Date,
-        default: Date.now
-      }
-    }],
-    biometricCommitment: {
-      type: String,
-      select: false
     }
   },
   academicInfo: {
-    course: String,
-    department: String,
-    year: Number,
+    department: {
+      type: String,
+      required: true
+    },
+    course: {
+      type: String,
+      required: true
+    },
+    year: {
+      type: String,
+      required: true
+    },
     section: String,
     rollNumber: String,
     admissionYear: Number,
     expectedGraduation: Number
   },
-  attendance: {
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: true
+  },
+  credentials: {
+    passwordHash: {
+      type: String,
+      required: true
+    },
+    passwordResetToken: String,
+    passwordResetExpires: Date,
+    passwordChangedAt: Date
+  },
+  biometrics: {
+    faceCommitment: {
+      commitment: String,
+      nullifier: String,
+      timestamp: Date
+    },
+    fingerprintCommitment: {
+      commitment: String,
+      nullifier: String,
+      timestamp: Date
+    },
+    registeredAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  attendanceStats: {
     totalDays: {
       type: Number,
       default: 0
@@ -109,32 +98,20 @@ const scholarSchema = new mongoose.Schema({
       type: Number,
       default: 0
     },
+    absentDays: {
+      type: Number,
+      default: 0
+    },
     percentage: {
       type: Number,
       default: 0
     },
-    lastMarked: Date
+    lastUpdated: Date
   },
   status: {
     type: String,
     enum: ['active', 'inactive', 'suspended', 'graduated'],
     default: 'active'
-  },
-  verification: {
-    isEmailVerified: {
-      type: Boolean,
-      default: false
-    },
-    isPhoneVerified: {
-      type: Boolean,
-      default: false
-    },
-    isBiometricRegistered: {
-      type: Boolean,
-      default: false
-    },
-    emailVerificationToken: String,
-    emailVerificationExpires: Date
   },
   settings: {
     notifications: {
@@ -152,11 +129,11 @@ const scholarSchema = new mongoose.Schema({
       }
     },
     privacy: {
-      showProfile: {
+      showEmail: {
         type: Boolean,
-        default: true
+        default: false
       },
-      showAttendance: {
+      showPhone: {
         type: Boolean,
         default: false
       }
@@ -164,17 +141,20 @@ const scholarSchema = new mongoose.Schema({
   },
   devices: [{
     deviceId: String,
-    deviceType: String,
-    deviceToken: String,
-    lastActive: Date
+    deviceName: String,
+    platform: String,
+    lastActive: Date,
+    pushToken: String
   }],
-  joinedAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
+  flags: {
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+    requirePasswordChange: {
+      type: Boolean,
+      default: false
+    }
   }
 }, {
   timestamps: true
@@ -182,111 +162,48 @@ const scholarSchema = new mongoose.Schema({
 
 // Indexes
 scholarSchema.index({ 'personalInfo.email': 1 });
-scholarSchema.index({ organizationId: 1, status: 1 });
-scholarSchema.index({ organizationId: 1, scholarId: 1 });
+scholarSchema.index({ scholarId: 1 });
+scholarSchema.index({ organizationId: 1 });
+scholarSchema.index({ status: 1 });
 
-// Virtual for attendance percentage
-scholarSchema.virtual('attendancePercentage').get(function() {
-  if (this.attendance.totalDays === 0) return 0;
-  return Math.round((this.attendance.presentDays / this.attendance.totalDays) * 100);
+// Virtual for full name
+scholarSchema.virtual('fullName').get(function() {
+  return this.personalInfo.name;
 });
 
-// Methods
+// Method to compare password
 scholarSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.credentials.password);
+  return await bcrypt.compare(candidatePassword, this.credentials.passwordHash);
 };
 
-scholarSchema.methods.comparePin = async function(candidatePin) {
-  if (!this.credentials.pin) return false;
-  return await bcrypt.compare(candidatePin, this.credentials.pin);
-};
+// Method to update attendance stats
+scholarSchema.methods.updateAttendanceStats = async function() {
+  const Attendance = mongoose.model('Attendance');
+  const attendanceCount = await Attendance.countDocuments({
+    scholarId: this._id,
+    status: 'present'
+  });
 
-scholarSchema.methods.generateAuthToken = function() {
-  const token = jwt.sign(
-    {
-      id: this._id,
-      organizationId: this.organizationId,
-      role: 'scholar',
-      email: this.personalInfo.email
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRY || '7d' }
-  );
-  return token;
-};
+  this.attendanceStats.presentDays = attendanceCount;
+  this.attendanceStats.totalDays = 100; // This should be calculated based on academic calendar
+  this.attendanceStats.absentDays = this.attendanceStats.totalDays - attendanceCount;
+  this.attendanceStats.percentage = Math.round((attendanceCount / this.attendanceStats.totalDays) * 100);
+  this.attendanceStats.lastUpdated = new Date();
 
-scholarSchema.methods.generateVerificationToken = function() {
-  const verificationToken = crypto.randomBytes(32).toString('hex');
-  
-  this.verification.emailVerificationToken = crypto
-    .createHash('sha256')
-    .update(verificationToken)
-    .digest('hex');
-    
-  this.verification.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-  
-  return verificationToken;
-};
-
-scholarSchema.methods.markAttendance = async function() {
-  this.attendance.presentDays += 1;
-  this.attendance.lastMarked = new Date();
-  await this.updateAttendancePercentage();
   return this.save();
 };
 
-scholarSchema.methods.updateAttendancePercentage = async function() {
-  if (this.attendance.totalDays > 0) {
-    this.attendance.percentage = Math.round(
-      (this.attendance.presentDays / this.attendance.totalDays) * 100
-    );
-  }
-};
-
-scholarSchema.methods.canMarkAttendance = function() {
-  if (!this.attendance.lastMarked) return true;
-  
-  const lastMarked = new Date(this.attendance.lastMarked);
-  const today = new Date();
-  
-  // Reset to start of day for comparison
-  lastMarked.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-  
-  return lastMarked < today;
-};
-
-// Pre-save middleware
+// Pre-save hook to hash password
 scholarSchema.pre('save', async function(next) {
-  // Hash password if modified
-  if (this.isModified('credentials.password')) {
-    const salt = await bcrypt.genSalt(10);
-    this.credentials.password = await bcrypt.hash(this.credentials.password, salt);
-  }
-  
-  // Hash PIN if modified
-  if (this.isModified('credentials.pin') && this.credentials.pin) {
-    const salt = await bcrypt.genSalt(10);
-    this.credentials.pin = await bcrypt.hash(this.credentials.pin, salt);
-  }
-  
-  // Update timestamp
-  this.updatedAt = Date.now();
-  
-  next();
-});
+  if (!this.isModified('credentials.passwordHash')) return next();
 
-// Generate unique scholar ID
-scholarSchema.pre('save', async function(next) {
-  if (!this.scholarId) {
-    const org = await mongoose.model('Organization').findById(this.organizationId);
-    const count = await mongoose.model('Scholar').countDocuments({ 
-      organizationId: this.organizationId 
-    });
-    
-    this.scholarId = `${org.code}-${String(count + 1).padStart(5, '0')}`;
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.credentials.passwordHash = await bcrypt.hash(this.credentials.passwordHash, salt);
+    next();
+  } catch (error) {
+    next(error);
   }
-  next();
 });
 
 const Scholar = mongoose.model('Scholar', scholarSchema);
