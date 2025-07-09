@@ -12,48 +12,61 @@ export const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    logger.info(`Auth check - Header: ${authHeader ? 'Present' : 'Missing'}, Token: ${token ? 'Present' : 'Missing'}`);
+    logger.info('Auth check - Header:', authHeader ? 'Present' : 'Missing', ', Token:', token ? 'Present' : 'Missing');
 
     if (!token) {
       return res.status(401).json({ error: 'Access token required' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'pramaan-secret-key');
-    
-    logger.info(`Token decoded - UserId: ${decoded.id}, Role: ${decoded.role}`);
+    // Log first few characters of token for debugging
+    logger.info('Token preview:', token.substring(0, 20) + '...');
 
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    logger.info('Token decoded - UserId:', decoded.userId, ', Role:', decoded.role);
+    logger.info('Decoded token full content:', JSON.stringify(decoded, null, 2));
+    
     // Attach user info to request
     req.user = {
-      id: decoded.id,
+      id: decoded.userId,
       organizationId: decoded.organizationId,
       role: decoded.role,
       scholarId: decoded.scholarId,
       permissions: decoded.permissions
     };
 
+    logger.info('req.user set to:', JSON.stringify(req.user, null, 2));
+
     // Verify user still exists and is active
     if (decoded.role === 'admin' || decoded.role === 'super_admin' || decoded.role === 'manager') {
-      const admin = await Admin.findById(decoded.id);
-      if (!admin || admin.status !== 'active') {
-        logger.warn(`Admin account inactive or not found: ${decoded.id}`);
-        return res.status(401).json({ error: 'Account inactive or not found' });
+      logger.info('Looking for admin with ID:', decoded.userId);
+      const admin = await Admin.findById(decoded.userId);
+      
+      if (!admin) {
+        logger.error('Admin not found with ID:', decoded.userId);
+        return res.status(401).json({ error: 'Account not found' });
       }
+      
+      if (!admin.isActive) {
+        logger.error('Admin found but inactive:', decoded.userId);
+        return res.status(401).json({ error: 'Account is inactive' });
+      }
+      
+      logger.info('Admin verified - organizationId in DB:', admin.organizationId);
     } else if (decoded.role === 'scholar') {
-      const scholar = await Scholar.findById(decoded.id);
+      const scholar = await Scholar.findById(decoded.userId);
       if (!scholar || scholar.status !== 'active') {
-        logger.warn(`Scholar account inactive or not found: ${decoded.id}`);
         return res.status(401).json({ error: 'Account inactive or not found' });
       }
     }
 
     next();
   } catch (error) {
+    logger.error('Auth error details:', error.message);
     if (error.name === 'JsonWebTokenError') {
-      logger.error('Invalid token:', error.message);
       return res.status(401).json({ error: 'Invalid token' });
     }
     if (error.name === 'TokenExpiredError') {
-      logger.error('Token expired');
       return res.status(401).json({ error: 'Token expired' });
     }
     logger.error('Authentication error:', error);

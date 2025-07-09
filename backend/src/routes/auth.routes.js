@@ -2,9 +2,11 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { body, validationResult } from 'express-validator';
 import Admin from '../models/Admin.js';
 import Scholar from '../models/Scholar.js';
 import Organization from '../models/Organization.js';
+import { authenticateToken } from '../middleware/auth.middleware.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -29,80 +31,112 @@ const generateToken = (userId, role, organizationId, additionalInfo = {}) => {
 // @route   POST /api/auth/admin/login
 // @desc    Admin login
 // @access  Public
-router.post('/admin/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
+router.post('/admin-login',
+  [
+    body('email').isEmail().normalizeEmail(),
+    body('password').notEmpty()
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
 
-    logger.info(`Admin login attempt for: ${email}`);
+      const { email, password } = req.body;
 
-    // Find admin by email
-    const admin = await Admin.findOne({ 'personalInfo.email': email })
-      .populate('organizationId');
+      logger.info(`Admin login attempt for: ${email}`);
 
-    if (!admin) {
-      logger.warn(`Admin not found: ${email}`);
-      return res.status(401).json({ 
-        success: false,
-        error: 'Invalid credentials' 
+      // Find admin with password field - try both field names
+      const admin = await Admin.findOne({ 'personalInfo.email': email })
+        .select('+credentials.password +credentials.passwordHash')
+        .populate('organizationId');
+
+      if (!admin) {
+        logger.warn(`Admin not found: ${email}`);
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Check if account is locked
+      if (admin.isLocked) {
+        return res.status(423).json({ 
+          error: 'Account is locked. Please try again later.' 
+        });
+      }
+
+      // Check if admin is active
+      if (!admin.isActive) {
+        return res.status(403).json({ error: 'Account is deactivated' });
+      }
+
+      // Get the stored password (handle both field names)
+      const storedPassword = admin.credentials.password || admin.credentials.passwordHash;
+      
+      if (!storedPassword) {
+        logger.error(`No password found for admin: ${email}`);
+        return res.status(500).json({ error: 'Account configuration error' });
+      }
+
+      // Verify password
+      const isPasswordValid = await bcrypt.compare(password, storedPassword);
+
+      if (!isPasswordValid) {
+        logger.warn(`Invalid password for admin: ${email}`);
+        if (admin.incLoginAttempts) {
+          await admin.incLoginAttempts();
+        }
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Reset login attempts
+      if (admin.resetLoginAttempts) {
+        await admin.resetLoginAttempts();
+      }
+
+      // Update last login
+      if (!admin.activity) {
+        admin.activity = {};
+      }
+      admin.activity.lastLogin = new Date();
+      await admin.save();
+
+      // Generate token - use the string ID, not the populated object
+      const token = jwt.sign(
+        { 
+          userId: admin._id.toString(),
+          organizationId: admin.organizationId._id.toString(),
+          role: admin.role,
+          permissions: admin.permissions
+        },
+        process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production',
+        { expiresIn: '7d' }
+      );
+
+      logger.info(`Admin login successful: ${email}`);
+
+      res.json({
+        message: 'Login successful',
+        token,
+        admin: {
+          id: admin._id,
+          name: admin.personalInfo.name,
+          email: admin.personalInfo.email,
+          role: admin.role
+        },
+        organization: {
+          id: admin.organizationId._id,
+          name: admin.organizationId.name,
+          code: admin.organizationId.code,
+          subscription: admin.organizationId.subscription
+        }
       });
+
+    } catch (error) {
+      logger.error('Admin login error:', error);
+      res.status(500).json({ error: 'Login failed' });
     }
-
-    logger.info(`Admin found: ${admin.personalInfo.email}, comparing passwords...`);
-
-    // Check password - handle both direct hash and comparePassword method
-    let isMatch = false;
-
-    if (admin.comparePassword) {
-      // Use the model method if available
-      isMatch = await admin.comparePassword(password);
-    } else {
-      // Direct bcrypt compare
-      isMatch = await bcrypt.compare(password, admin.credentials.passwordHash);
-    }
-    
-    logger.info(`Password match result: ${isMatch}`);
-
-    if (!isMatch) {
-      logger.warn(`Invalid password for admin: ${email}`);
-      return res.status(401).json({ 
-        success: false,
-        error: 'Invalid credentials' 
-      });
-    }
-
-    // Check if admin is active
-    if (admin.status !== 'active') {
-      logger.warn(`Inactive admin account: ${email}`);
-      return res.status(401).json({ 
-        success: false,
-        error: 'Account is not active' 
-      });
-    }
-
-    logger.info(`Admin login successful: ${admin.personalInfo.email}`);
-
-    res.json({
-      success: true,
-      token: generateToken(admin._id, 'admin', admin.organizationId._id),
-      user: {
-        id: admin._id,
-        name: admin.personalInfo.name,
-        email: admin.personalInfo.email,
-        role: 'admin',
-        organizationId: admin.organizationId._id,
-        organizationCode: admin.organizationId.code,
-        userType: 'admin',
-      },
-    });
-  } catch (error) {
-    logger.error('Admin login error:', error);
-    res.status(500).json({
-      success: false, 
-      error: 'Login failed',
-      details: error.message 
-    });
   }
-});
+);
 
 // @route   POST /api/auth/scholar/login
 // @desc    Scholar login
@@ -483,6 +517,34 @@ router.post('/logout', async (req, res) => {
     success: true,
     message: 'Logged out successfully' 
   });
+});
+
+// Test endpoint to check token contents
+router.get('/test-token', authenticateToken, async (req, res) => {
+  try {
+    logger.info('Test token endpoint - req.user:', JSON.stringify(req.user, null, 2));
+    
+    // Get the actual admin from database
+    const admin = await Admin.findById(req.user.id).populate('organizationId');
+    
+    res.json({
+      tokenData: {
+        userId: req.user.id,
+        organizationId: req.user.organizationId,
+        role: req.user.role
+      },
+      adminData: admin ? {
+        id: admin._id,
+        email: admin.personalInfo.email,
+        organizationId: admin.organizationId?._id,
+        organizationName: admin.organizationId?.name,
+        organizationCode: admin.organizationId?.code
+      } : null
+    });
+  } catch (error) {
+    logger.error('Test token error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 export default router;
