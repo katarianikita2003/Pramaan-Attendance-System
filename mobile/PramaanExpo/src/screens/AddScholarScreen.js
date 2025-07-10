@@ -1,89 +1,110 @@
 // mobile/PramaanExpo/src/screens/AddScholarScreen.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
   Alert,
   Image,
-  Platform,
+  TouchableOpacity,
 } from 'react-native';
 import {
   TextInput,
   Button,
   Card,
-  HelperText,
   RadioButton,
+  HelperText,
+  Divider,
   Chip,
-  ActivityIndicator,
+  Avatar,
+  IconButton,
+  ProgressBar,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import * as ImagePicker from 'expo-image-picker';
+import { useAuth } from '../contexts/AuthContext';
 import { adminService } from '../services/api';
+import biometricService from '../services/biometric.service';
 
 const AddScholarScreen = ({ navigation }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
-  const [faceImage, setFaceImage] = useState(null);
+  const [biometricTypes, setBiometricTypes] = useState([]);
   
-  const [formData, setFormData] = useState({
-    // Personal Info
+  // Scholar data
+  const [scholarData, setScholarData] = useState({
     scholarId: '',
     name: '',
     email: '',
     phone: '',
-    dateOfBirth: '',
-    gender: 'male',
-    
-    // Academic Info
+    password: '',
+    confirmPassword: '',
     department: '',
     course: '',
     year: '',
     section: '',
-    
-    // Guardian Info
-    guardianName: '',
-    guardianPhone: '',
-    
-    // Address
-    address: '',
-    city: '',
-    state: '',
-    pincode: '',
   });
 
-  const [errors, setErrors] = useState({});
+  // Biometric data
+  const [biometricData, setBiometricData] = useState({
+    faceImage: null,
+    faceCommitment: null,
+    fingerprintData: null,
+    fingerprintCommitment: null,
+    selectedBiometric: 'both', // 'face', 'fingerprint', or 'both'
+  });
+
+  // Profile photo
+  const [profilePhoto, setProfilePhoto] = useState(null);
+
+  useEffect(() => {
+    checkBiometricAvailability();
+  }, []);
+
+  const checkBiometricAvailability = async () => {
+    const { available, biometryType } = await biometricService.checkBiometricAvailability();
+    if (available) {
+      setBiometricTypes(biometryType);
+    }
+  };
 
   const validateStep1 = () => {
-    const newErrors = {};
-    
-    if (!formData.scholarId) newErrors.scholarId = 'Scholar ID is required';
-    if (!formData.name) newErrors.name = 'Name is required';
-    if (!formData.email) newErrors.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Invalid email format';
+    if (!scholarData.scholarId || !scholarData.name || !scholarData.email || 
+        !scholarData.phone || !scholarData.password) {
+      Alert.alert('Error', 'Please fill all required fields');
+      return false;
     }
-    if (!formData.phone) newErrors.phone = 'Phone is required';
-    else if (formData.phone.length < 10) {
-      newErrors.phone = 'Invalid phone number';
+
+    if (scholarData.password.length < 8) {
+      Alert.alert('Error', 'Password must be at least 8 characters');
+      return false;
     }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+
+    if (scholarData.password !== scholarData.confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return false;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(scholarData.email)) {
+      Alert.alert('Error', 'Please enter a valid email');
+      return false;
+    }
+
+    return true;
   };
 
   const validateStep2 = () => {
-    const newErrors = {};
-    
-    if (!formData.department) newErrors.department = 'Department is required';
-    if (!formData.course) newErrors.course = 'Course is required';
-    if (!formData.year) newErrors.year = 'Year is required';
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (!scholarData.department || !scholarData.course || !scholarData.year) {
+      Alert.alert('Error', 'Please fill all academic details');
+      return false;
+    }
+    return true;
   };
 
   const handleNext = () => {
@@ -94,81 +115,135 @@ const AddScholarScreen = ({ navigation }) => {
     }
   };
 
-  const handlePrevious = () => {
-    setStep(step - 1);
+  const handleBack = () => {
+    if (step > 1) {
+      setStep(step - 1);
+    }
   };
 
-  const captureface = async () => {
+  const pickProfilePhoto = async () => {
     try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera permission is required to capture face.');
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaType.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
-        base64: true,
       });
 
       if (!result.canceled && result.assets[0]) {
-        setFaceImage(result.assets[0]);
+        setProfilePhoto(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Face capture error:', error);
-      Alert.alert('Error', 'Failed to capture face image');
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const captureFace = async () => {
+    try {
+      setLoading(true);
+      const result = await biometricService.captureFacePhoto();
+      
+      if (result.success) {
+        setBiometricData({
+          ...biometricData,
+          faceImage: result.data.uri,
+        });
+        
+        // Generate commitment
+        const { commitment, nullifier } = await biometricService.generateBiometricCommitment(result.data);
+        setBiometricData(prev => ({
+          ...prev,
+          faceCommitment: { commitment, nullifier },
+        }));
+        
+        Alert.alert('Success', 'Face captured successfully');
+      } else {
+        Alert.alert('Error', result.error || 'Failed to capture face');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to capture face');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const captureFingerprint = async () => {
+    try {
+      setLoading(true);
+      const result = await biometricService.captureFingerprint();
+      
+      if (result.success) {
+        setBiometricData({
+          ...biometricData,
+          fingerprintData: result.data,
+        });
+        
+        // Generate commitment
+        const { commitment, nullifier } = await biometricService.generateBiometricCommitment(result.data);
+        setBiometricData(prev => ({
+          ...prev,
+          fingerprintCommitment: { commitment, nullifier },
+        }));
+        
+        Alert.alert('Success', 'Fingerprint captured successfully');
+      } else {
+        Alert.alert('Error', result.error || 'Failed to capture fingerprint');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to capture fingerprint');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleSubmit = async () => {
-    try {
-      if (!faceImage) {
-        Alert.alert('Error', 'Please capture face image');
-        return;
-      }
+    // Validate biometric data
+    if (biometricData.selectedBiometric === 'face' && !biometricData.faceImage) {
+      Alert.alert('Error', 'Please capture face photo');
+      return;
+    }
+    
+    if (biometricData.selectedBiometric === 'fingerprint' && !biometricData.fingerprintData) {
+      Alert.alert('Error', 'Please capture fingerprint');
+      return;
+    }
+    
+    if (biometricData.selectedBiometric === 'both' && 
+        (!biometricData.faceImage || !biometricData.fingerprintData)) {
+      Alert.alert('Error', 'Please capture both face and fingerprint');
+      return;
+    }
 
+    try {
       setLoading(true);
 
-      const scholarData = {
-        scholarId: formData.scholarId,
+      const formData = {
+        scholarId: scholarData.scholarId.toUpperCase(),
         personalInfo: {
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          dateOfBirth: formData.dateOfBirth,
-          gender: formData.gender,
-          address: {
-            street: formData.address,
-            city: formData.city,
-            state: formData.state,
-            pincode: formData.pincode,
-          },
+          name: scholarData.name,
+          email: scholarData.email,
+          phone: scholarData.phone,
         },
         academicInfo: {
-          department: formData.department,
-          course: formData.course,
-          year: formData.year,
-          section: formData.section,
+          department: scholarData.department,
+          course: scholarData.course,
+          year: scholarData.year,
+          section: scholarData.section || '',
         },
-        guardianInfo: {
-          name: formData.guardianName,
-          phone: formData.guardianPhone,
+        password: scholarData.password,
+        biometrics: {
+          faceCommitment: biometricData.faceCommitment,
+          fingerprintCommitment: biometricData.fingerprintCommitment,
         },
-        biometricData: {
-          faceImage: faceImage.base64,
-        },
+        organizationId: user.organizationId,
       };
 
-      const response = await adminService.addScholar(scholarData);
+      const response = await adminService.addScholar(formData);
 
       if (response.success) {
         Alert.alert(
           'Success',
-          'Scholar added successfully!',
+          'Scholar added successfully',
           [
             {
               text: 'OK',
@@ -191,278 +266,310 @@ const AddScholarScreen = ({ navigation }) => {
     <View>
       <Text style={styles.stepTitle}>Personal Information</Text>
       
+      <View style={styles.profilePhotoContainer}>
+        <TouchableOpacity onPress={pickProfilePhoto}>
+          {profilePhoto ? (
+            <Avatar.Image size={100} source={{ uri: profilePhoto }} />
+          ) : (
+            <Avatar.Icon size={100} icon="camera" style={styles.avatarPlaceholder} />
+          )}
+        </TouchableOpacity>
+        <Text style={styles.photoHelp}>Tap to add profile photo (optional)</Text>
+      </View>
+
       <TextInput
         label="Scholar ID *"
-        value={formData.scholarId}
-        onChangeText={(text) => setFormData({ ...formData, scholarId: text })}
+        value={scholarData.scholarId}
+        onChangeText={(text) => setScholarData({...scholarData, scholarId: text})}
         style={styles.input}
         mode="outlined"
-        error={!!errors.scholarId}
+        autoCapitalize="characters"
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
-      <HelperText type="error" visible={!!errors.scholarId}>
-        {errors.scholarId}
-      </HelperText>
 
       <TextInput
         label="Full Name *"
-        value={formData.name}
-        onChangeText={(text) => setFormData({ ...formData, name: text })}
+        value={scholarData.name}
+        onChangeText={(text) => setScholarData({...scholarData, name: text})}
         style={styles.input}
         mode="outlined"
-        error={!!errors.name}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
-      <HelperText type="error" visible={!!errors.name}>
-        {errors.name}
-      </HelperText>
 
       <TextInput
         label="Email *"
-        value={formData.email}
-        onChangeText={(text) => setFormData({ ...formData, email: text })}
+        value={scholarData.email}
+        onChangeText={(text) => setScholarData({...scholarData, email: text})}
         style={styles.input}
         mode="outlined"
         keyboardType="email-address"
-        error={!!errors.email}
+        autoCapitalize="none"
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
-      <HelperText type="error" visible={!!errors.email}>
-        {errors.email}
-      </HelperText>
 
       <TextInput
-        label="Phone *"
-        value={formData.phone}
-        onChangeText={(text) => setFormData({ ...formData, phone: text })}
+        label="Phone Number *"
+        value={scholarData.phone}
+        onChangeText={(text) => setScholarData({...scholarData, phone: text})}
         style={styles.input}
         mode="outlined"
         keyboardType="phone-pad"
-        error={!!errors.phone}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
-      <HelperText type="error" visible={!!errors.phone}>
-        {errors.phone}
+
+      <TextInput
+        label="Password *"
+        value={scholarData.password}
+        onChangeText={(text) => setScholarData({...scholarData, password: text})}
+        style={styles.input}
+        mode="outlined"
+        secureTextEntry
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
+      />
+      <HelperText type="info" visible={true}>
+        Minimum 8 characters
       </HelperText>
 
-      <View style={styles.radioContainer}>
-        <Text style={styles.radioLabel}>Gender:</Text>
-        <RadioButton.Group
-          onValueChange={(value) => setFormData({ ...formData, gender: value })}
-          value={formData.gender}
-        >
-          <View style={styles.radioRow}>
-            <RadioButton.Item label="Male" value="male" />
-            <RadioButton.Item label="Female" value="female" />
-            <RadioButton.Item label="Other" value="other" />
-          </View>
-        </RadioButton.Group>
-      </View>
+      <TextInput
+        label="Confirm Password *"
+        value={scholarData.confirmPassword}
+        onChangeText={(text) => setScholarData({...scholarData, confirmPassword: text})}
+        style={styles.input}
+        mode="outlined"
+        secureTextEntry
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
+      />
     </View>
   );
 
   const renderStep2 = () => (
     <View>
       <Text style={styles.stepTitle}>Academic Information</Text>
-      
-      <TextInput
-        label="Department *"
-        value={formData.department}
-        onChangeText={(text) => setFormData({ ...formData, department: text })}
-        style={styles.input}
-        mode="outlined"
-        error={!!errors.department}
-      />
-      <HelperText type="error" visible={!!errors.department}>
-        {errors.department}
-      </HelperText>
 
       <TextInput
-        label="Course *"
-        value={formData.course}
-        onChangeText={(text) => setFormData({ ...formData, course: text })}
+        label="Department *"
+        value={scholarData.department}
+        onChangeText={(text) => setScholarData({...scholarData, department: text})}
         style={styles.input}
         mode="outlined"
-        error={!!errors.course}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
-      <HelperText type="error" visible={!!errors.course}>
-        {errors.course}
-      </HelperText>
+
+      <TextInput
+        label="Course/Program *"
+        value={scholarData.course}
+        onChangeText={(text) => setScholarData({...scholarData, course: text})}
+        style={styles.input}
+        mode="outlined"
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
+      />
 
       <TextInput
         label="Year *"
-        value={formData.year}
-        onChangeText={(text) => setFormData({ ...formData, year: text })}
+        value={scholarData.year}
+        onChangeText={(text) => setScholarData({...scholarData, year: text})}
         style={styles.input}
         mode="outlined"
-        error={!!errors.year}
-      />
-      <HelperText type="error" visible={!!errors.year}>
-        {errors.year}
-      </HelperText>
-
-      <TextInput
-        label="Section"
-        value={formData.section}
-        onChangeText={(text) => setFormData({ ...formData, section: text })}
-        style={styles.input}
-        mode="outlined"
-      />
-
-      <Text style={styles.sectionTitle}>Guardian Information</Text>
-
-      <TextInput
-        label="Guardian Name"
-        value={formData.guardianName}
-        onChangeText={(text) => setFormData({ ...formData, guardianName: text })}
-        style={styles.input}
-        mode="outlined"
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
 
       <TextInput
-        label="Guardian Phone"
-        value={formData.guardianPhone}
-        onChangeText={(text) => setFormData({ ...formData, guardianPhone: text })}
+        label="Section (Optional)"
+        value={scholarData.section}
+        onChangeText={(text) => setScholarData({...scholarData, section: text})}
         style={styles.input}
         mode="outlined"
-        keyboardType="phone-pad"
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
     </View>
   );
 
   const renderStep3 = () => (
     <View>
-      <Text style={styles.stepTitle}>Biometric Enrollment</Text>
+      <Text style={styles.stepTitle}>Biometric Registration</Text>
       
-      <Card style={styles.biometricCard}>
-        <Card.Content style={styles.biometricContent}>
-          {faceImage ? (
-            <View style={styles.imageContainer}>
-              <Image source={{ uri: faceImage.uri }} style={styles.faceImage} />
-              <TouchableOpacity
-                style={styles.retakeButton}
-                onPress={captureface}
-              >
-                <Icon name="refresh" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity onPress={captureface} style={styles.captureArea}>
-              <Icon name="photo-camera" size={64} color="#6C63FF" />
-              <Text style={styles.captureText}>Tap to Capture Face</Text>
-            </TouchableOpacity>
-          )}
-        </Card.Content>
-      </Card>
-
-      <View style={styles.addressSection}>
-        <Text style={styles.sectionTitle}>Address</Text>
-        
-        <TextInput
-          label="Street Address"
-          value={formData.address}
-          onChangeText={(text) => setFormData({ ...formData, address: text })}
-          style={styles.input}
-          mode="outlined"
-          multiline
-        />
-
-        <View style={styles.row}>
-          <TextInput
-            label="City"
-            value={formData.city}
-            onChangeText={(text) => setFormData({ ...formData, city: text })}
-            style={[styles.input, styles.halfInput]}
-            mode="outlined"
-          />
-          
-          <TextInput
-            label="State"
-            value={formData.state}
-            onChangeText={(text) => setFormData({ ...formData, state: text })}
-            style={[styles.input, styles.halfInput]}
-            mode="outlined"
-          />
-        </View>
-
-        <TextInput
-          label="Pincode"
-          value={formData.pincode}
-          onChangeText={(text) => setFormData({ ...formData, pincode: text })}
-          style={styles.input}
-          mode="outlined"
-          keyboardType="numeric"
-        />
+      <View style={styles.biometricSelection}>
+        <Text style={styles.sectionLabel}>Select Biometric Type:</Text>
+        <RadioButton.Group
+          onValueChange={value => setBiometricData({...biometricData, selectedBiometric: value})}
+          value={biometricData.selectedBiometric}
+        >
+          <RadioButton.Item label="Both (Face + Fingerprint)" value="both" />
+          <RadioButton.Item label="Face Only" value="face" />
+          <RadioButton.Item label="Fingerprint Only" value="fingerprint" />
+        </RadioButton.Group>
       </View>
+
+      <Divider style={styles.divider} />
+
+      {/* Face Capture */}
+      {(biometricData.selectedBiometric === 'face' || biometricData.selectedBiometric === 'both') && (
+        <Card style={styles.biometricCard}>
+          <Card.Content>
+            <View style={styles.biometricHeader}>
+              <Icon name="face" size={24} color="#6C63FF" />
+              <Text style={styles.biometricTitle}>Face Recognition</Text>
+            </View>
+            
+            {biometricData.faceImage ? (
+              <View style={styles.capturedImageContainer}>
+                <Image source={{ uri: biometricData.faceImage }} style={styles.capturedImage} />
+                <IconButton
+                  icon="close-circle"
+                  size={24}
+                  onPress={() => setBiometricData({...biometricData, faceImage: null, faceCommitment: null})}
+                  style={styles.removeButton}
+                />
+              </View>
+            ) : (
+              <Button
+                mode="outlined"
+                icon="camera"
+                onPress={captureFace}
+                loading={loading}
+                disabled={loading}
+                style={styles.captureButton}
+              >
+                Capture Face
+              </Button>
+            )}
+            
+            {biometricData.faceCommitment && (
+              <Chip icon="check" style={styles.successChip}>
+                Face data encrypted
+              </Chip>
+            )}
+          </Card.Content>
+        </Card>
+      )}
+
+      {/* Fingerprint Capture */}
+      {(biometricData.selectedBiometric === 'fingerprint' || biometricData.selectedBiometric === 'both') && (
+        <Card style={styles.biometricCard}>
+          <Card.Content>
+            <View style={styles.biometricHeader}>
+              <Icon name="fingerprint" size={24} color="#6C63FF" />
+              <Text style={styles.biometricTitle}>Fingerprint</Text>
+            </View>
+            
+            {biometricData.fingerprintData ? (
+              <View style={styles.fingerprintSuccess}>
+                <Icon name="check-circle" size={48} color="#4CAF50" />
+                <Text style={styles.successText}>Fingerprint captured</Text>
+                <IconButton
+                  icon="refresh"
+                  size={24}
+                  onPress={() => setBiometricData({...biometricData, fingerprintData: null, fingerprintCommitment: null})}
+                />
+              </View>
+            ) : (
+              <Button
+                mode="outlined"
+                icon="fingerprint"
+                onPress={captureFingerprint}
+                loading={loading}
+                disabled={loading}
+                style={styles.captureButton}
+              >
+                Capture Fingerprint
+              </Button>
+            )}
+            
+            {biometricData.fingerprintCommitment && (
+              <Chip icon="check" style={styles.successChip}>
+                Fingerprint data encrypted
+              </Chip>
+            )}
+          </Card.Content>
+        </Card>
+      )}
+
+      <HelperText type="info" visible={true} style={styles.privacyNote}>
+        <Icon name="lock" size={14} /> Your biometric data is encrypted using Zero-Knowledge Proof technology. 
+        The actual biometric data never leaves your device.
+      </HelperText>
     </View>
   );
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add New Scholar</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <View style={styles.stepIndicator}>
-        {[1, 2, 3].map((num) => (
-          <View key={num} style={styles.stepItem}>
-            <View
-              style={[
-                styles.stepCircle,
-                step >= num && styles.stepCircleActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.stepNumber,
-                  step >= num && styles.stepNumberActive,
-                ]}
-              >
-                {num}
-              </Text>
-            </View>
-            {num < 3 && <View style={[styles.stepLine, step > num && styles.stepLineActive]} />}
-          </View>
-        ))}
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
-
-        <View style={styles.buttonContainer}>
-          {step > 1 && (
-            <Button
-              mode="outlined"
-              onPress={handlePrevious}
-              style={styles.button}
-            >
-              Previous
-            </Button>
-          )}
-          
-          {step < 3 ? (
-            <Button
-              mode="contained"
-              onPress={handleNext}
-              style={[styles.button, step === 1 && styles.fullWidth]}
-            >
-              Next
-            </Button>
-          ) : (
-            <Button
-              mode="contained"
-              onPress={handleSubmit}
-              style={styles.button}
-              loading={loading}
-              disabled={loading}
-            >
-              Submit
-            </Button>
-          )}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
+      >
+        <View style={styles.header}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={() => navigation.goBack()}
+          />
+          <Text style={styles.headerTitle}>Add New Scholar</Text>
+          <View style={{ width: 48 }} />
         </View>
-      </ScrollView>
+
+        <ProgressBar
+          progress={step / 3}
+          color="#6C63FF"
+          style={styles.progressBar}
+        />
+
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Card style={styles.card}>
+            <Card.Content>
+              {step === 1 && renderStep1()}
+              {step === 2 && renderStep2()}
+              {step === 3 && renderStep3()}
+            </Card.Content>
+          </Card>
+
+          <View style={styles.buttonContainer}>
+            {step > 1 && (
+              <Button
+                mode="outlined"
+                onPress={handleBack}
+                style={styles.button}
+                disabled={loading}
+              >
+                Back
+              </Button>
+            )}
+            
+            {step < 3 ? (
+              <Button
+                mode="contained"
+                onPress={handleNext}
+                style={[styles.button, styles.nextButton]}
+                disabled={loading}
+              >
+                Next
+              </Button>
+            ) : (
+              <Button
+                mode="contained"
+                onPress={handleSubmit}
+                style={[styles.button, styles.nextButton]}
+                loading={loading}
+                disabled={loading}
+              >
+                Add Scholar
+              </Button>
+            )}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -472,144 +579,134 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  keyboardView: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    backgroundColor: 'white',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
     elevation: 2,
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: '#333',
   },
-  stepIndicator: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 20,
-    backgroundColor: 'white',
+  progressBar: {
+    height: 4,
   },
-  stepItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  stepCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E0E0E0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepCircleActive: {
-    backgroundColor: '#6C63FF',
-  },
-  stepNumber: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-  },
-  stepNumberActive: {
-    color: 'white',
-  },
-  stepLine: {
-    width: 60,
-    height: 2,
-    backgroundColor: '#E0E0E0',
-    marginHorizontal: 8,
-  },
-  stepLineActive: {
-    backgroundColor: '#6C63FF',
-  },
-  content: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
     padding: 16,
   },
-  stepTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#333',
+  card: {
+    marginBottom: 16,
   },
-  sectionTitle: {
+  stepTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginTop: 20,
-    marginBottom: 10,
+    marginBottom: 20,
     color: '#333',
+  },
+  profilePhotoContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  avatarPlaceholder: {
+    backgroundColor: '#E0E0E0',
+  },
+  photoHelp: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
   },
   input: {
-    marginBottom: 4,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  halfInput: {
-    width: '48%',
-  },
-  radioContainer: {
-    marginVertical: 16,
-  },
-  radioLabel: {
-    fontSize: 16,
-    marginBottom: 8,
-    color: '#333',
-  },
-  radioRow: {
-    flexDirection: 'row',
-  },
-  biometricCard: {
-    marginBottom: 20,
-    elevation: 3,
-  },
-  biometricContent: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  captureArea: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  captureText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#6C63FF',
-  },
-  imageContainer: {
-    position: 'relative',
-  },
-  faceImage: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-  },
-  retakeButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#6C63FF',
-    borderRadius: 20,
-    padding: 8,
-  },
-  addressSection: {
-    marginTop: 20,
+    marginBottom: 12,
   },
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 30,
-    marginBottom: 20,
+    marginTop: 16,
   },
   button: {
     flex: 1,
     marginHorizontal: 8,
   },
-  fullWidth: {
-    marginHorizontal: 0,
+  nextButton: {
+    backgroundColor: '#6C63FF',
+  },
+  biometricSelection: {
+    marginBottom: 20,
+  },
+  sectionLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+    color: '#333',
+  },
+  divider: {
+    marginVertical: 16,
+  },
+  biometricCard: {
+    marginBottom: 16,
+    elevation: 2,
+  },
+  biometricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  biometricTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+    color: '#333',
+  },
+  capturedImageContainer: {
+    position: 'relative',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  capturedImage: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 3,
+    borderColor: '#6C63FF',
+  },
+  removeButton: {
+    position: 'absolute',
+    top: -10,
+    right: '30%',
+    backgroundColor: '#fff',
+  },
+  captureButton: {
+    borderColor: '#6C63FF',
+    marginVertical: 8,
+  },
+  successChip: {
+    backgroundColor: '#E8F5E9',
+    marginTop: 12,
+    alignSelf: 'center',
+  },
+  fingerprintSuccess: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  successText: {
+    fontSize: 16,
+    color: '#4CAF50',
+    marginTop: 8,
+  },
+  privacyNote: {
+    marginTop: 16,
+    paddingHorizontal: 8,
+    fontSize: 12,
+    lineHeight: 18,
   },
 });
 
