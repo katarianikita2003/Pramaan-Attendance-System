@@ -4,7 +4,13 @@ import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'expo-camera';
 import { Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '../config/constants';
+
+// Define storage keys locally
+const STORAGE_KEYS = {
+  BIOMETRIC_ENROLLED: 'biometric_enrolled',
+  USER_TOKEN: 'user_token',
+  USER_DATA: 'user_data'
+};
 
 class BiometricService {
   // Check if biometric hardware is available
@@ -76,7 +82,7 @@ class BiometricService {
     }
   }
 
-  // Capture face photo using camera - Compatible version
+  // Capture face photo using camera
   async captureFacePhoto() {
     try {
       // Request camera permissions
@@ -150,7 +156,7 @@ class BiometricService {
       const { available, biometryType } = await this.checkBiometricAvailability();
       
       if (!available) {
-        return { success: false, error: 'Biometric authentication not available' };
+        return { success: false, error: 'Biometric not available' };
       }
 
       // Check if fingerprint is supported
@@ -159,33 +165,33 @@ class BiometricService {
       );
 
       if (!hasFingerprintSupport) {
-        // If no fingerprint, check for any biometric
-        if (biometryType.length === 0) {
-          return { success: false, error: 'No biometric authentication available on this device' };
-        }
-        // Use whatever biometric is available (e.g., Face ID)
+        return { success: false, error: 'Fingerprint not supported on this device' };
       }
 
-      // Authenticate using available biometric
+      // Authenticate using fingerprint
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Authenticate to register your biometric',
-        fallbackLabel: 'Cancel',
-        disableDeviceFallback: true,
+        promptMessage: 'Scan your fingerprint to enroll',
+        fallbackLabel: 'Use Passcode',
+        cancelLabel: 'Cancel',
+        disableDeviceFallback: false,
       });
 
       if (result.success) {
-        // In a real app, you would capture actual fingerprint data here
-        // For now, we'll generate a mock fingerprint template
-        return {
-          success: true,
-          data: {
-            type: hasFingerprintSupport ? 'fingerprint' : 'biometric',
-            template: this.generateMockFingerprintTemplate(),
-            timestamp: new Date().toISOString(),
-          },
+        // Generate mock fingerprint data (in production, this would be actual biometric data)
+        const fingerprintData = {
+          type: 'fingerprint',
+          timestamp: Date.now(),
+          deviceId: Platform.OS === 'ios' ? 'ios-device' : 'android-device',
+          // In a real implementation, this would be the actual fingerprint template
+          template: this.generateMockFingerprintTemplate(),
         };
+
+        return { success: true, data: fingerprintData };
       } else {
-        return { success: false, error: 'Biometric capture failed' };
+        return { 
+          success: false, 
+          error: result.error || 'Fingerprint capture failed' 
+        };
       }
     } catch (error) {
       console.error('Fingerprint capture error:', error);
@@ -195,22 +201,40 @@ class BiometricService {
 
   // Generate mock fingerprint template (for demo purposes)
   generateMockFingerprintTemplate() {
-    // In a real implementation, this would be actual biometric data
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 15);
-    return `FP_${timestamp}_${random}`;
+    const template = [];
+    for (let i = 0; i < 512; i++) {
+      template.push(Math.floor(Math.random() * 256));
+    }
+    return template;
   }
 
-  // Store biometric enrollment status
-  async setBiometricEnrolled(enrolled) {
+  // Generate biometric commitment (mock implementation)
+  async generateBiometricCommitment(biometricData) {
     try {
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.BIOMETRIC_ENROLLED,
-        enrolled.toString()
-      );
+      // In a real implementation, this would use actual ZKP libraries
+      const timestamp = Date.now();
+      const dataString = JSON.stringify(biometricData);
+      
+      // Mock commitment generation
+      const commitment = `COMM_${timestamp}_${this.hashString(dataString)}`;
+      const nullifier = `NULL_${timestamp}_${this.hashString(commitment)}`;
+
+      return { commitment, nullifier };
     } catch (error) {
-      console.error('Error storing biometric enrollment status:', error);
+      console.error('Error generating biometric commitment:', error);
+      throw error;
     }
+  }
+
+  // Simple hash function (for demo purposes)
+  hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36);
   }
 
   // Check if biometric is enrolled for current user
@@ -224,28 +248,16 @@ class BiometricService {
     }
   }
 
-  // Generate biometric commitment (mock implementation)
-  async generateBiometricCommitment(biometricData) {
-    // In a real implementation, this would use actual ZKP libraries
-    const timestamp = Date.now();
-    const dataString = JSON.stringify(biometricData);
-    
-    // Mock commitment generation
-    const commitment = `COMM_${timestamp}_${this.hashString(dataString)}`;
-    const nullifier = `NULL_${timestamp}_${this.hashString(commitment)}`;
-
-    return { commitment, nullifier };
-  }
-
-  // Simple hash function (for demo purposes)
-  hashString(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+  // Save biometric enrollment status
+  async saveBiometricEnrollment(enrolled) {
+    try {
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.BIOMETRIC_ENROLLED, 
+        enrolled ? 'true' : 'false'
+      );
+    } catch (error) {
+      console.error('Error saving biometric enrollment status:', error);
     }
-    return Math.abs(hash).toString(36);
   }
 
   // Get biometric type string
@@ -273,6 +285,40 @@ class BiometricService {
     } catch (error) {
       console.error('Camera availability check error:', error);
       return false;
+    }
+  }
+
+  // Verify biometric for attendance
+  async verifyBiometricForAttendance(storedCommitment) {
+    try {
+      // First authenticate the user
+      const authResult = await this.authenticateWithBiometric(
+        'Authenticate to mark attendance'
+      );
+
+      if (!authResult.success) {
+        return { success: false, error: authResult.error };
+      }
+
+      // In a real implementation, this would:
+      // 1. Capture current biometric
+      // 2. Generate ZKP proof
+      // 3. Verify against stored commitment
+      // For now, we'll simulate this
+      const mockProof = {
+        proof: `PROOF_${Date.now()}_${this.hashString(storedCommitment)}`,
+        publicSignals: [storedCommitment],
+        timestamp: Date.now(),
+      };
+
+      return { 
+        success: true, 
+        proof: mockProof,
+        message: 'Biometric verified successfully' 
+      };
+    } catch (error) {
+      console.error('Biometric verification error:', error);
+      return { success: false, error: error.message };
     }
   }
 }
