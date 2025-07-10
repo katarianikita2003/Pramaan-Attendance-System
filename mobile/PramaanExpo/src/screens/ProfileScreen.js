@@ -292,7 +292,7 @@ const ProfileScreen = ({ navigation }) => {
             <List.Item
               title="Location Access"
               description="Allow location for attendance marking"
-              left={(props) => <List.Icon {...props} icon="location-on" />}
+              left={(props) => <List.Icon {...props} icon="map-marker" />}
               right={() => (
                 <Switch
                   value={preferences.locationTracking}

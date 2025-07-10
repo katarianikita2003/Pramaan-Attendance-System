@@ -315,7 +315,7 @@ const SettingsScreen = ({ navigation, route }) => {
           <List.Item
             title="Require Location Verification"
             description="Scholars must be within campus boundaries"
-            left={(props) => <List.Icon {...props} icon="location-on" />}
+            left={(props) => <List.Icon {...props} icon="map-marker" />}
             right={() => (
               <Switch
                 value={attendanceSettings.requireLocation}
@@ -372,7 +372,7 @@ const SettingsScreen = ({ navigation, route }) => {
           <Button
             mode="outlined"
             onPress={handleLocationPermission}
-            icon="my-location"
+            icon="crosshairs-gps"
             style={styles.locationButton}
           >
             Use Current Location
@@ -482,7 +482,7 @@ const SettingsScreen = ({ navigation, route }) => {
           <List.Item
             title="Share Anonymous Analytics"
             description="Help improve Pramaan with usage data"
-            left={(props) => <List.Icon {...props} icon="analytics" />}
+            left={(props) => <List.Icon {...props} icon="chart-line" />}
             right={() => (
               <Switch
                 value={privacySettings.shareAnalytics}

@@ -133,7 +133,7 @@ const AttendanceScreen = ({ navigation }) => {
     <Card style={styles.card}>
       <Card.Content>
         <View style={styles.iconContainer}>
-          <Icon name="location-on" size={64} color="#6C63FF" />
+          <Icon name="map-marker" size={64} color="#6C63FF" />
         </View>
         
         <Title style={styles.cardTitle}>Location Verification</Title>
