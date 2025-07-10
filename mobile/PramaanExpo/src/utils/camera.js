@@ -1,4 +1,4 @@
-﻿// utils/camera.js
+// utils/camera.js
 import * as ImagePicker from 'expo-image-picker';
 
 export const captureImage = async (options = {}) => {
