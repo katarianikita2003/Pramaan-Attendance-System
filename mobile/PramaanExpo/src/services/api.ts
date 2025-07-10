@@ -1,80 +1,161 @@
 // mobile/PramaanExpo/src/services/api.ts
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL, STORAGE_KEYS, API_ENDPOINTS, TIMEOUTS } from '../config/constants';
+import { API_BASE_URL, API_ENDPOINTS, STORAGE_KEYS, TIMEOUTS } from '../config/constants';
 
-console.log('API Base URL configured as:', API_BASE_URL);
-
-// Create axios instance
+// Create axios instance with enhanced configuration
 const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: TIMEOUTS.DEFAULT,
   headers: {
+    'Accept': 'application/json',
     'Content-Type': 'application/json',
   },
+  // Prevent automatic transformation that might cause issues
+  transformRequest: [(data, headers) => {
+    // For FormData, let axios handle it
+    if (data instanceof FormData) {
+      delete headers['Content-Type'];
+      return data;
+    }
+    
+    // For strings, check if they're already JSON
+    if (typeof data === 'string') {
+      try {
+        // Try to parse to see if it's valid JSON
+        JSON.parse(data);
+        return data;
+      } catch {
+        // Not JSON, stringify it
+        return JSON.stringify(data);
+      }
+    }
+    
+    // For objects, stringify them
+    if (data && typeof data === 'object') {
+      return JSON.stringify(data);
+    }
+    
+    return data;
+  }],
+  transformResponse: [(data) => {
+    if (typeof data === 'string') {
+      try {
+        return JSON.parse(data);
+      } catch {
+        return data;
+      }
+    }
+    return data;
+  }],
 });
 
-// Request interceptor to add token
+// Request interceptor with enhanced debugging
 api.interceptors.request.use(
   async (config) => {
     try {
+      // Get auth token
       const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-      
-      // Enhanced logging with full URL
-      const fullUrl = `${config.baseURL}${config.url}`;
-      console.log('API Request:', {
-        fullUrl,
-        url: config.url,
-        method: config.method,
-        hasToken: !!token,
-        baseURL: config.baseURL
-      });
-      
+
+      // Enhanced debug logging
+      if (__DEV__) {
+        console.log('=== API REQUEST ===');
+        console.log('Method:', config.method?.toUpperCase());
+        console.log('URL:', config.url);
+        console.log('Full URL:', `${config.baseURL}${config.url}`);
+        console.log('Has Token:', !!token);
+        
+        if (config.data) {
+          console.log('Data Type:', typeof config.data);
+          if (typeof config.data === 'string') {
+            console.log('String Data:', config.data.substring(0, 100) + '...');
+          } else {
+            console.log('Object Data:', config.data);
+          }
+        }
+        
+        console.log('Headers:', {
+          'Content-Type': config.headers['Content-Type'],
+          'Authorization': config.headers.Authorization ? 'Bearer ***' : 'None'
+        });
+        console.log('==================');
+      }
+
       return config;
     } catch (error) {
-      console.error('Error setting auth token:', error);
-      return config;
+      console.error('Request interceptor error:', error);
+      return Promise.reject(error);
     }
   },
   (error) => {
+    console.error('Request setup error:', error);
     return Promise.reject(error);
   }
 );
 
-// Response interceptor for error handling
+// Response interceptor with better error handling
 api.interceptors.response.use(
   (response) => {
+    if (__DEV__) {
+      console.log('=== API RESPONSE ===');
+      console.log('Status:', response.status);
+      console.log('URL:', response.config.url);
+      console.log('Data:', response.data);
+      console.log('===================');
+    }
     return response;
   },
   async (error: AxiosError) => {
-    console.error('API Error:', {
-      url: error.config?.url,
-      status: error.response?.status,
-      message: error.response?.data?.error || error.message,
-    });
+    if (__DEV__) {
+      console.error('=== API ERROR ===');
+      console.error('URL:', error.config?.url);
+      console.error('Method:', error.config?.method);
+      console.error('Status:', error.response?.status);
+      console.error('Response:', error.response?.data);
+      console.error('Message:', error.message);
+      console.error('=================');
+    }
 
-    // Handle 401 errors - token might be expired
-    if (error.response?.status === 401) {
-      const isAuthEndpoint = error.config?.url?.includes('/auth/');
+    // Handle specific error cases
+    if (error.response) {
+      const { status, data } = error.response;
       
-      if (!isAuthEndpoint) {
-        // Clear stored data and redirect to login
+      // Handle authentication errors
+      if (status === 401) {
+        // Clear stored auth data
         await AsyncStorage.multiRemove([
-          STORAGE_KEYS.AUTH_TOKEN, 
-          STORAGE_KEYS.USER_DATA, 
-          STORAGE_KEYS.USER_TYPE
+          STORAGE_KEYS.AUTH_TOKEN,
+          STORAGE_KEYS.USER_DATA,
+          STORAGE_KEYS.USER_TYPE,
+          STORAGE_KEYS.ORGANIZATION_CODE,
         ]);
       }
+      
+      // Format error message
+      const errorMessage = 
+        (data as any)?.error || 
+        (data as any)?.message || 
+        error.message || 
+        'An error occurred';
+      
+      // Enhance error object
+      error.message = errorMessage;
+    } else if (error.request) {
+      // Request made but no response
+      error.message = 'No response from server. Please check your connection.';
+    } else {
+      // Request setup error
+      error.message = error.message || 'Request failed';
     }
 
     return Promise.reject(error);
   }
 );
 
-// Types
+// Type definitions
 interface LoginResponse {
   success?: boolean;
   token?: string;
@@ -82,6 +163,7 @@ interface LoginResponse {
   admin?: any;
   scholar?: any;
   organization?: any;
+  organizationCode?: string;
   error?: string;
   message?: string;
 }
@@ -93,14 +175,14 @@ interface ApiResponse<T = any> {
   message?: string;
 }
 
-// Auth services
+// Auth services with enhanced error handling
 export const authService = {
   async registerOrganization(data: any): Promise<any> {
     try {
-      const response = await api.post('/auth/register-organization', data);
+      console.log('Registering organization...');
+      const response = await api.post(API_ENDPOINTS.REGISTER_ORGANIZATION, data);
       
       if (response.data.token) {
-        // Store token and user data
         await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, response.data.token);
         await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
         await AsyncStorage.setItem(STORAGE_KEYS.USER_TYPE, 'admin');
@@ -110,50 +192,76 @@ export const authService = {
         }
       }
       
-      return response.data;
+      return { ...response.data, success: true };
     } catch (error: any) {
+      console.error('Registration error:', error);
       throw error;
     }
   },
 
   async adminLogin(email: string, password: string): Promise<LoginResponse> {
     try {
-      const response = await api.post('/auth/admin-login', { email, password });
+      console.log('Admin login attempt for:', email);
+      
+      // Validate inputs
+      if (!email || !password) {
+        throw new Error('Email and password are required');
+      }
+      
+      // Prepare login data
+      const loginData = {
+        email: String(email).trim().toLowerCase(),
+        password: String(password).trim()
+      };
+      
+      console.log('Sending login request...');
+      const response = await api.post(API_ENDPOINTS.ADMIN_LOGIN, loginData);
+      
+      console.log('Login response received');
       
       if (response.data.token) {
-        // Store token and user data
+        // Store authentication data
         await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, response.data.token);
         
-        // Handle the response structure from the backend
-        const userData = response.data.admin || response.data.user;
+        const userData = response.data.user || response.data.admin;
         if (userData) {
           await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
         }
         
         await AsyncStorage.setItem(STORAGE_KEYS.USER_TYPE, 'admin');
         
-        // Store organization data if available
         if (response.data.organization) {
           await AsyncStorage.setItem(STORAGE_KEYS.ORGANIZATION_CODE, response.data.organization.code);
         }
+        
+        console.log('Login successful, auth data stored');
       }
       
-      return response.data;
+      return { ...response.data, success: true };
     } catch (error: any) {
+      console.error('Admin login error:', error.message);
       throw error;
     }
   },
 
   async scholarLogin(email: string, password: string, organizationCode: string): Promise<LoginResponse> {
     try {
-      const response = await api.post('/auth/scholar/login', {
-        email,
-        password,
-        organizationCode,
-      });
+      console.log('Scholar login attempt for:', email);
+      
+      // Validate inputs
+      if (!email || !password || !organizationCode) {
+        throw new Error('Email, password, and organization code are required');
+      }
+      
+      const loginData = {
+        email: String(email).trim().toLowerCase(),
+        password: String(password).trim(),
+        organizationCode: String(organizationCode).trim().toUpperCase()
+      };
+      
+      const response = await api.post(API_ENDPOINTS.SCHOLAR_LOGIN, loginData);
       
       if (response.data.token) {
-        // Store token and user data
         await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, response.data.token);
         
         const userData = response.data.user || response.data.scholar;
@@ -165,177 +273,273 @@ export const authService = {
         await AsyncStorage.setItem(STORAGE_KEYS.ORGANIZATION_CODE, organizationCode);
       }
       
+      return { ...response.data, success: true };
+    } catch (error: any) {
+      console.error('Scholar login error:', error.message);
+      throw error;
+    }
+  },
+
+  async logout(): Promise<void> {
+    try {
+      console.log('Logging out...');
+      
+      // Clear all stored data
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.AUTH_TOKEN,
+        STORAGE_KEYS.USER_DATA,
+        STORAGE_KEYS.USER_TYPE,
+        STORAGE_KEYS.ORGANIZATION_CODE,
+        STORAGE_KEYS.BIOMETRIC_ENROLLED,
+      ]);
+      
+      console.log('Logout complete');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Force clear on error
+      await AsyncStorage.clear();
+    }
+  },
+
+  async forgotPassword(email: string, userType: 'admin' | 'scholar'): Promise<ApiResponse> {
+    try {
+      const response = await api.post(API_ENDPOINTS.FORGOT_PASSWORD, { 
+        email: email.trim().toLowerCase(), 
+        userType 
+      });
       return response.data;
     } catch (error: any) {
       throw error;
     }
   },
 
-  async logout(): Promise<boolean> {
+  async resetPassword(token: string, newPassword: string, userType: 'admin' | 'scholar'): Promise<ApiResponse> {
     try {
-      await AsyncStorage.multiRemove([
-        STORAGE_KEYS.AUTH_TOKEN, 
-        STORAGE_KEYS.USER_DATA, 
-        STORAGE_KEYS.USER_TYPE,
-        STORAGE_KEYS.ORGANIZATION_CODE
-      ]);
-      return true;
+      const response = await api.post(API_ENDPOINTS.RESET_PASSWORD, { 
+        token, 
+        newPassword,
+        userType 
+      });
+      return response.data;
+    } catch (error: any) {
+      throw error;
+    }
+  },
+};
+
+// Admin services
+export const adminService = {
+  async getDashboard(): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ADMIN_DASHBOARD);
+      return response.data;
     } catch (error) {
-      console.error('Logout error:', error);
-      return false;
+      console.error('Get dashboard error:', error);
+      throw error;
     }
   },
 
-  async getCurrentUser() {
+  async getScholars(page = 1, limit = 20, search = ''): Promise<any> {
     try {
-      const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
-      return userData ? JSON.parse(userData) : null;
+      const response = await api.get(API_ENDPOINTS.ADMIN_SCHOLARS, {
+        params: { page, limit, search: search.trim() }
+      });
+      return response.data;
     } catch (error) {
-      console.error('Error getting current user:', error);
-      return null;
+      console.error('Get scholars error:', error);
+      throw error;
+    }
+  },
+
+  async addScholar(scholarData: any): Promise<any> {
+    try {
+      const response = await api.post(API_ENDPOINTS.SCHOLAR_REGISTER, scholarData);
+      return response.data;
+    } catch (error) {
+      console.error('Add scholar error:', error);
+      throw error;
+    }
+  },
+
+  async getReports(dateRange?: { start: Date; end: Date }): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ADMIN_REPORTS, {
+        params: dateRange ? {
+          startDate: dateRange.start.toISOString(),
+          endDate: dateRange.end.toISOString()
+        } : {}
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Get reports error:', error);
+      throw error;
+    }
+  },
+
+  async getStats(): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ADMIN_STATS);
+      return response.data;
+    } catch (error) {
+      console.error('Get stats error:', error);
+      throw error;
+    }
+  },
+
+  async getProfile(): Promise<any> {
+    try {
+      const response = await api.get('/admin/profile');
+      return response.data;
+    } catch (error) {
+      console.error('Get profile error:', error);
+      throw error;
+    }
+  },
+
+  async updateProfile(data: any): Promise<any> {
+    try {
+      const response = await api.put('/admin/profile', data);
+      return response.data;
+    } catch (error) {
+      console.error('Update profile error:', error);
+      throw error;
+    }
+  },
+};
+
+// Scholar services
+export const scholarService = {
+  async getProfile(): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.SCHOLAR_PROFILE);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  async getStats(): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.SCHOLAR_STATS);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  async getAttendanceHistory(page = 1, limit = 20): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.SCHOLAR_ATTENDANCE_HISTORY, {
+        params: { page, limit }
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  async markAttendance(data: any): Promise<any> {
+    try {
+      const response = await api.post(API_ENDPOINTS.MARK_ATTENDANCE, data);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  async generateCertificate(attendanceId: string): Promise<any> {
+    try {
+      const response = await api.post(API_ENDPOINTS.GENERATE_CERTIFICATE, { 
+        attendanceId 
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
     }
   },
 };
 
 // Organization services
 export const organizationService = {
-  async getDetails(): Promise<ApiResponse> {
-    const response = await api.get('/organization/details');
-    return response.data;
+  async getDetails(): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ORGANIZATION_DETAILS);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 
-  async updateSettings(settings: any): Promise<ApiResponse> {
-    const response = await api.put('/organization/details', settings);
-    return response.data;
+  async updateSettings(settings: any): Promise<any> {
+    try {
+      const response = await api.put(API_ENDPOINTS.ORGANIZATION_SETTINGS, settings);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 
-  async getBoundaries(): Promise<ApiResponse> {
-    const response = await api.get('/organization/boundaries');
-    return response.data;
+  async getBoundaries(): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ORGANIZATION_BOUNDARIES);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 
-  async getStats(): Promise<ApiResponse> {
-    const response = await api.get('/organization/stats');
-    return response.data;
-  },
-};
-
-// Scholar services
-export const scholarService = {
-  async getStats(): Promise<ApiResponse> {
-    const response = await api.get('/scholar/stats');
-    return response.data;
+  async updateBoundaries(boundaries: any): Promise<any> {
+    try {
+      const response = await api.put(API_ENDPOINTS.ORGANIZATION_BOUNDARIES, boundaries);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 
-  async getProfile(scholarId?: string): Promise<ApiResponse> {
-    const endpoint = scholarId ? `/scholar/${scholarId}/profile` : '/scholar/profile';
-    const response = await api.get(endpoint);
-    return response.data;
-  },
-
-  async updateProfile(data: any): Promise<ApiResponse> {
-    const response = await api.put('/scholar/profile', data);
-    return response.data;
-  },
-
-  async getAttendanceHistory(): Promise<ApiResponse> {
-    const response = await api.get('/scholar/attendance/history');
-    return response.data;
-  },
-
-  async enrollBiometric(scholarId: string, type: string, biometricData: any): Promise<ApiResponse> {
-    const response = await api.post(`/scholar/${scholarId}/biometric/enroll`, {
-      type,
-      biometricData
-    });
-    return response.data;
+  async getStats(): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ORGANIZATION_STATS);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 };
 
 // Attendance services
 export const attendanceService = {
-  async markAttendance(data: any): Promise<ApiResponse> {
-    const response = await api.post('/attendance/mark', data);
-    return response.data;
+  async verifyProof(proofData: string): Promise<any> {
+    try {
+      const response = await api.post(API_ENDPOINTS.VERIFY_PROOF, { 
+        proof: proofData 
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 
-  async generateProof(data: any): Promise<ApiResponse> {
-    const response = await api.post('/attendance/generate-proof', data);
-    return response.data;
+  async getAttendanceStats(period?: string): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ATTENDANCE_STATS, {
+        params: period ? { period } : {}
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 
-  async verifyProof(proofId: string): Promise<ApiResponse> {
-    const response = await api.get(`/attendance/verify/${proofId}`);
-    return response.data;
-  },
-
-  async getRecords(filters = {}): Promise<ApiResponse> {
-    const response = await api.get('/attendance/records', { params: filters });
-    return response.data;
-  },
-  
-  async getHistory(scholarId?: string, params = {}): Promise<ApiResponse> {
-    const endpoint = scholarId 
-      ? `/attendance/history/${scholarId}` 
-      : '/attendance/history';
-    const response = await api.get(endpoint, { params });
-    return response.data;
-  },
-
-  async getStats(scholarId: string): Promise<ApiResponse> {
-    const response = await api.get(`/attendance/stats/${scholarId}`);
-    return response.data;
-  },
-
-  async generateCertificate(scholarId: string, period: any): Promise<ApiResponse> {
-    const response = await api.post('/attendance/certificate', {
-      scholarId,
-      period
-    });
-    return response.data;
-  },
-};
-
-// Admin services
-export const adminService = {
-  async getDashboard(): Promise<ApiResponse> {
-    const response = await api.get('/admin/dashboard');
-    return response.data;
-  },
-
-  async getScholars(params = {}): Promise<ApiResponse> {
-    const response = await api.get('/admin/scholars', { params });
-    return response.data;
-  },
-
-  async addScholar(scholarData: any): Promise<ApiResponse> {
-    const response = await api.post('/scholar/register', scholarData);
-    return response.data;
-  },
-
-  async updateScholar(scholarId: string, data: any): Promise<ApiResponse> {
-    const response = await api.put(`/scholar/${scholarId}`, data);
-    return response.data;
-  },
-
-  async deleteScholar(scholarId: string): Promise<ApiResponse> {
-    const response = await api.delete(`/scholar/${scholarId}`);
-    return response.data;
-  },
-
-  async getAttendanceReports(params = {}): Promise<ApiResponse> {
-    const response = await api.get('/admin/reports', { params });
-    return response.data;
-  },
-
-  async getStats(): Promise<ApiResponse> {
-    const response = await api.get('/admin/stats');
-    return response.data;
-  },
-
-  async getAnalytics(params = {}): Promise<ApiResponse> {
-    const response = await api.get('/admin/analytics', { params });
-    return response.data;
+  async getHistory(filters?: any): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ATTENDANCE_HISTORY, {
+        params: filters
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 };
 

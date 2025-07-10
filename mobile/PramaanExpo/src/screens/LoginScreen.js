@@ -1,4 +1,4 @@
-// mobile/PramaanExpo/src/screens/LoginScreen.js
+// mobile/PramaanExpo/src/screens/LoginScreen.js - FIXED VERSION
 import React, { useState } from 'react';
 import {
   View,
@@ -32,28 +32,45 @@ const LoginScreen = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
+    // Validation
+    if (userType === 'scholar' && !organizationCode) {
+      Alert.alert('Error', 'Please enter organization code');
+      return;
+    }
+    
     if (!email || !password) {
       Alert.alert('Error', 'Please enter email and password');
       return;
     }
 
-    if (userType === 'scholar' && !organizationCode) {
-      Alert.alert('Error', 'Please enter organization code');
-      return;
-    }
-
     try {
       setLoading(true);
+      
+      // Trim email and password to remove any whitespace
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanPassword = password.trim();
+      const cleanOrgCode = organizationCode.trim().toUpperCase();
+      
+      console.log('Login attempt:', {
+        email: cleanEmail,
+        passwordLength: cleanPassword.length,
+        userType: userType,  // This should be 'admin' or 'scholar'
+        hasOrgCode: userType === 'scholar' ? !!cleanOrgCode : 'N/A'
+      });
+
+      // Call login with correct parameter order
       const result = await login(
-        email,
-        password,
-        userType === 'scholar' ? organizationCode : null,
-        userType
+        cleanEmail,
+        cleanPassword,
+        userType === 'scholar' ? cleanOrgCode : null,
+        userType  // This should be the string 'admin' or 'scholar'
       );
 
       if (result.success) {
+        console.log('Login successful');
         // Navigation is handled by the auth context
       } else {
+        console.log('Login failed:', result.error);
         Alert.alert('Login Failed', result.error || 'Invalid credentials');
       }
     } catch (error) {
@@ -88,7 +105,10 @@ const LoginScreen = ({ navigation }) => {
               <View style={styles.radioContainer}>
                 <Text style={styles.radioLabel}>Login as:</Text>
                 <RadioButton.Group
-                  onValueChange={(value) => setUserType(value)}
+                  onValueChange={(value) => {
+                    console.log('User type changed to:', value);
+                    setUserType(value);
+                  }}
                   value={userType}
                 >
                   <View style={styles.radioRow}>

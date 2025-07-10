@@ -176,6 +176,13 @@ scholarSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.credentials.passwordHash);
 };
 
+// Method to set password (use this when setting/updating passwords)
+scholarSchema.methods.setPassword = async function(plainPassword) {
+  const salt = await bcrypt.genSalt(10);
+  this.credentials.passwordHash = await bcrypt.hash(plainPassword, salt);
+  this.credentials.passwordChangedAt = new Date();
+};
+
 // Method to update attendance stats
 scholarSchema.methods.updateAttendanceStats = async function() {
   const Attendance = mongoose.model('Attendance');
@@ -193,18 +200,28 @@ scholarSchema.methods.updateAttendanceStats = async function() {
   return this.save();
 };
 
-// Pre-save hook to hash password
-scholarSchema.pre('save', async function(next) {
-  if (!this.isModified('credentials.passwordHash')) return next();
+// Method to add device
+scholarSchema.methods.addDevice = function(deviceInfo) {
+  // Remove existing device with same ID
+  this.devices = this.devices.filter(d => d.deviceId !== deviceInfo.deviceId);
+  
+  // Add new device
+  this.devices.push({
+    ...deviceInfo,
+    lastActive: new Date()
+  });
 
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.credentials.passwordHash = await bcrypt.hash(this.credentials.passwordHash, salt);
-    next();
-  } catch (error) {
-    next(error);
+  // Keep only last 5 devices
+  if (this.devices.length > 5) {
+    this.devices = this.devices.slice(-5);
   }
-});
+
+  return this.save();
+};
+
+// REMOVED THE PROBLEMATIC PRE-SAVE HOOK
+// The password should already be hashed when it's set
+// We don't need to hash it again in the model
 
 const Scholar = mongoose.model('Scholar', scholarSchema);
 

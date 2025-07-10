@@ -4,10 +4,9 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   Alert,
+  Dimensions,
   Platform,
-  TouchableOpacity,
 } from 'react-native';
 import {
   Card,
@@ -15,259 +14,248 @@ import {
   Paragraph,
   Button,
   ActivityIndicator,
-  Chip,
+  Portal,
+  Dialog,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
-import * as LocalAuthentication from 'expo-local-authentication';
 import * as Location from 'expo-location';
-import { attendanceService } from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
+import * as LocalAuthentication from 'expo-local-authentication';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { attendanceService, organizationService } from '../services/api';
+import { APP_CONFIG } from '../config/constants';
+
+const { width } = Dimensions.get('window');
 
 const AttendanceScreen = ({ navigation }) => {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState(null);
-  const [biometricType, setBiometricType] = useState(null);
-  const [step, setStep] = useState('location'); // location, biometric, success
-  const [attendanceProof, setAttendanceProof] = useState(null);
+  const [locationStatus, setLocationStatus] = useState('checking');
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [boundaries, setBoundaries] = useState(null);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [proofData, setProofData] = useState(null);
 
   useEffect(() => {
-    checkBiometricAvailability();
-    getLocation();
+    checkPermissionsAndInit();
   }, []);
 
-  const checkBiometricAvailability = async () => {
+  const checkPermissionsAndInit = async () => {
     try {
-      const compatible = await LocalAuthentication.hasHardwareAsync();
-      if (compatible) {
-        const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-        if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-          setBiometricType('fingerprint');
-        } else if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-          setBiometricType('face');
-        }
-      }
-    } catch (error) {
-      console.error('Biometric check error:', error);
-    }
-  };
-
-  const getLocation = async () => {
-    try {
+      // Check location permissions
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is required to mark attendance');
+        Alert.alert(
+          'Permission Required',
+          'Location permission is required to mark attendance.',
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
         return;
       }
 
-      const currentLocation = await Location.getCurrentPositionAsync({
+      // Check biometric availability
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      setBiometricAvailable(hasHardware && isEnrolled);
+
+      // Get organization boundaries
+      const boundariesResponse = await organizationService.getBoundaries();
+      if (boundariesResponse.success) {
+        setBoundaries(boundariesResponse.boundaries);
+      }
+
+      // Get current location
+      await getCurrentLocation();
+    } catch (error) {
+      console.error('Init error:', error);
+      Alert.alert('Error', 'Failed to initialize attendance marking');
+    }
+  };
+
+  const getCurrentLocation = async () => {
+    try {
+      setLocationStatus('checking');
+      
+      const locationResult = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      
+
       setLocation({
-        latitude: currentLocation.coords.latitude,
-        longitude: currentLocation.coords.longitude,
-        accuracy: currentLocation.coords.accuracy,
-      });
-    } catch (error) {
-      Alert.alert('Location Error', 'Unable to get your location. Please try again.');
-    }
-  };
-
-  const handleBiometricAuth = async () => {
-    try {
-      setLoading(true);
-      
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Authenticate to mark attendance',
-        disableDeviceFallback: false,
-        cancelLabel: 'Cancel',
+        latitude: locationResult.coords.latitude,
+        longitude: locationResult.coords.longitude,
+        accuracy: locationResult.coords.accuracy,
       });
 
-      if (result.success) {
-        await markAttendance();
+      // Check if within boundaries
+      if (boundaries) {
+        const isWithin = checkIfWithinBoundaries(
+          locationResult.coords.latitude,
+          locationResult.coords.longitude
+        );
+        setLocationStatus(isWithin ? 'valid' : 'outside');
       } else {
-        Alert.alert('Authentication Failed', 'Please try again');
-        setLoading(false);
+        setLocationStatus('valid');
       }
     } catch (error) {
-      console.error('Biometric auth error:', error);
-      Alert.alert('Error', 'Biometric authentication failed');
-      setLoading(false);
+      console.error('Location error:', error);
+      setLocationStatus('error');
     }
   };
 
-  const markAttendance = async () => {
-    try {
-      // In a real app, this would capture actual biometric data
-      // For ZKP, we would generate a proof without sending the actual biometric
-      const attendanceData = {
-        scholarId: user.scholarId,
-        organizationCode: user.organizationCode,
-        location: location,
-        timestamp: new Date().toISOString(),
-        biometricData: {
-          type: biometricType,
-          // This would be the ZKP proof, not actual biometric data
-          proof: 'zkp_proof_placeholder',
-        },
-      };
+  const checkIfWithinBoundaries = (lat, lon) => {
+    if (!boundaries || !boundaries.center) return true;
 
-      const response = await attendanceService.markAttendance(attendanceData);
+    const distance = calculateDistance(
+      lat,
+      lon,
+      boundaries.center.latitude,
+      boundaries.center.longitude
+    );
+
+    return distance <= boundaries.radius;
+  };
+
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // Distance in meters
+  };
+
+  const handleMarkAttendance = async () => {
+    try {
+      // Verify location
+      if (locationStatus !== 'valid') {
+        Alert.alert(
+          'Invalid Location',
+          'You must be within the campus/office boundaries to mark attendance.'
+        );
+        return;
+      }
+
+      // Biometric authentication
+      if (biometricAvailable) {
+        const authResult = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Authenticate to mark attendance',
+          fallbackLabel: 'Use Password',
+          cancelLabel: 'Cancel',
+        });
+
+        if (!authResult.success) {
+          return;
+        }
+      }
+
+      setLoading(true);
+
+      // Mark attendance
+      const response = await attendanceService.markAttendance({
+        location: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          accuracy: location.accuracy,
+        },
+        deviceInfo: {
+          platform: Platform.OS,
+          model: Platform.constants?.Model || 'Unknown',
+        },
+      });
 
       if (response.success) {
-        setAttendanceProof(response.proof);
-        setStep('success');
-      } else {
-        throw new Error(response.error || 'Failed to mark attendance');
+        setProofData(response.proof);
+        setShowSuccessDialog(true);
       }
     } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to mark attendance');
+      console.error('Mark attendance error:', error);
+      Alert.alert(
+        'Failed',
+        error.response?.data?.error || 'Failed to mark attendance'
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const renderLocationStep = () => (
-    <Card style={styles.card}>
+  const LocationCard = () => (
+    <Card style={styles.locationCard}>
       <Card.Content>
-        <View style={styles.iconContainer}>
-          <Icon name="map-marker" size={64} color="#6C63FF" />
-        </View>
-        
-        <Title style={styles.cardTitle}>Location Verification</Title>
-        
-        {location ? (
-          <>
-            <View style={styles.locationInfo}>
-              <Icon name="check-circle" size={20} color="#4CAF50" />
-              <Text style={styles.locationText}>Location captured successfully</Text>
-            </View>
-            
-            <View style={styles.coordinatesContainer}>
-              <Text style={styles.coordinateText}>
-                Lat: {location.latitude.toFixed(6)}
-              </Text>
-              <Text style={styles.coordinateText}>
-                Lng: {location.longitude.toFixed(6)}
-              </Text>
-            </View>
-            
-            <Button
-              mode="contained"
-              onPress={() => setStep('biometric')}
-              style={styles.nextButton}
-            >
-              Next: Biometric Authentication
-            </Button>
-          </>
-        ) : (
-          <>
-            <Paragraph style={styles.description}>
-              Getting your location to verify you're at the authorized premises...
-            </Paragraph>
-            <ActivityIndicator size="large" color="#6C63FF" style={styles.loader} />
-            <Button mode="outlined" onPress={getLocation} style={styles.retryButton}>
-              Retry Location
-            </Button>
-          </>
-        )}
-      </Card.Content>
-    </Card>
-  );
-
-  const renderBiometricStep = () => (
-    <Card style={styles.card}>
-      <Card.Content>
-        <View style={styles.iconContainer}>
-          <Icon 
-            name={biometricType === 'fingerprint' ? 'fingerprint' : 'face'} 
-            size={64} 
-            color="#6C63FF" 
+        <View style={styles.locationHeader}>
+          <Icon
+            name="location-on"
+            size={32}
+            color={
+              locationStatus === 'valid'
+                ? '#4CAF50'
+                : locationStatus === 'outside'
+                ? '#FF5252'
+                : '#FFC107'
+            }
           />
+          <View style={styles.locationInfo}>
+            <Title style={styles.locationTitle}>
+              {locationStatus === 'checking' && 'Checking Location...'}
+              {locationStatus === 'valid' && 'Location Verified'}
+              {locationStatus === 'outside' && 'Outside Campus'}
+              {locationStatus === 'error' && 'Location Error'}
+            </Title>
+            {location && locationStatus === 'valid' && (
+              <Paragraph style={styles.locationAccuracy}>
+                Accuracy: ±{location.accuracy.toFixed(0)}m
+              </Paragraph>
+            )}
+          </View>
         </View>
-        
-        <Title style={styles.cardTitle}>Biometric Authentication</Title>
-        
-        <Paragraph style={styles.description}>
-          Use your {biometricType === 'fingerprint' ? 'fingerprint' : 'face'} to mark attendance.
-          Your biometric data stays on your device.
-        </Paragraph>
-        
-        <View style={styles.zkpInfo}>
-          <Icon name="lock" size={16} color="#666" />
-          <Text style={styles.zkpText}>
-            Zero-Knowledge Proof ensures your privacy
-          </Text>
-        </View>
-        
-        <Button
-          mode="contained"
-          onPress={handleBiometricAuth}
-          loading={loading}
-          disabled={loading}
-          style={styles.authenticateButton}
-          contentStyle={styles.authenticateButtonContent}
-        >
-          {loading ? 'Authenticating...' : `Scan ${biometricType === 'fingerprint' ? 'Fingerprint' : 'Face'}`}
-        </Button>
-        
+
+        {locationStatus === 'outside' && (
+          <View style={styles.warningBox}>
+            <Icon name="warning" size={20} color="#FF5252" />
+            <Text style={styles.warningText}>
+              You must be within campus boundaries to mark attendance
+            </Text>
+          </View>
+        )}
+
         <Button
           mode="text"
-          onPress={() => setStep('location')}
-          disabled={loading}
+          onPress={getCurrentLocation}
+          style={styles.refreshButton}
+          disabled={locationStatus === 'checking'}
         >
-          Back
+          Refresh Location
         </Button>
       </Card.Content>
     </Card>
   );
 
-  const renderSuccessStep = () => (
-    <Card style={styles.card}>
+  const BiometricCard = () => (
+    <Card style={styles.biometricCard}>
       <Card.Content>
-        <View style={styles.iconContainer}>
-          <Icon name="check-circle" size={80} color="#4CAF50" />
+        <View style={styles.biometricHeader}>
+          <Icon
+            name="fingerprint"
+            size={48}
+            color={biometricAvailable ? '#6C63FF' : '#BDBDBD'}
+          />
+          <View style={styles.biometricInfo}>
+            <Title style={styles.biometricTitle}>
+              {biometricAvailable
+                ? 'Biometric Ready'
+                : 'Biometric Not Available'}
+            </Title>
+            <Paragraph style={styles.biometricSubtitle}>
+              {biometricAvailable
+                ? 'Use your fingerprint or face to mark attendance'
+                : 'Please set up biometric authentication in settings'}
+            </Paragraph>
+          </View>
         </View>
-        
-        <Title style={styles.successTitle}>Attendance Marked!</Title>
-        
-        <Paragraph style={styles.successDescription}>
-          Your attendance has been successfully recorded using Zero-Knowledge Proof.
-        </Paragraph>
-        
-        <View style={styles.proofContainer}>
-          <Text style={styles.proofLabel}>Proof ID:</Text>
-          <Text style={styles.proofId}>{attendanceProof?.id || 'PROOF123456'}</Text>
-        </View>
-        
-        <View style={styles.timestampContainer}>
-          <Icon name="access-time" size={16} color="#666" />
-          <Text style={styles.timestampText}>
-            {new Date().toLocaleString()}
-          </Text>
-        </View>
-        
-        <Button
-          mode="contained"
-          onPress={() => {
-            // Download or share proof
-            Alert.alert('Success', 'Attendance proof saved to your device');
-          }}
-          style={styles.downloadButton}
-          icon="download"
-        >
-          Download Proof
-        </Button>
-        
-        <Button
-          mode="outlined"
-          onPress={() => navigation.goBack()}
-          style={styles.doneButton}
-        >
-          Done
-        </Button>
       </Card.Content>
     </Card>
   );
@@ -282,58 +270,71 @@ const AttendanceScreen = ({ navigation }) => {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Progress Indicator */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressStep}>
-            <View style={[styles.progressCircle, step !== 'location' && styles.progressCircleComplete]}>
-              <Text style={styles.progressNumber}>1</Text>
-            </View>
-            <Text style={styles.progressLabel}>Location</Text>
-          </View>
-          
-          <View style={[styles.progressLine, step !== 'location' && styles.progressLineComplete]} />
-          
-          <View style={styles.progressStep}>
-            <View style={[
-              styles.progressCircle,
-              step === 'biometric' && styles.progressCircleActive,
-              step === 'success' && styles.progressCircleComplete
-            ]}>
-              <Text style={styles.progressNumber}>2</Text>
-            </View>
-            <Text style={styles.progressLabel}>Biometric</Text>
-          </View>
-          
-          <View style={[styles.progressLine, step === 'success' && styles.progressLineComplete]} />
-          
-          <View style={styles.progressStep}>
-            <View style={[styles.progressCircle, step === 'success' && styles.progressCircleComplete]}>
-              <Text style={styles.progressNumber}>3</Text>
-            </View>
-            <Text style={styles.progressLabel}>Complete</Text>
-          </View>
+      <View style={styles.content}>
+        <LocationCard />
+        <BiometricCard />
+
+        <View style={styles.illustration}>
+          <Icon name="touch-app" size={80} color="#E0E0E0" />
+          <Text style={styles.illustrationText}>
+            Tap below to mark your attendance
+          </Text>
         </View>
 
-        {/* Step Content */}
-        {step === 'location' && renderLocationStep()}
-        {step === 'biometric' && renderBiometricStep()}
-        {step === 'success' && renderSuccessStep()}
+        <Button
+          mode="contained"
+          onPress={handleMarkAttendance}
+          style={styles.markButton}
+          contentStyle={styles.markButtonContent}
+          disabled={loading || locationStatus !== 'valid' || !biometricAvailable}
+          loading={loading}
+        >
+          {loading ? 'Processing...' : 'Mark Attendance'}
+        </Button>
+      </View>
 
-        {/* Privacy Notice */}
-        <Card style={styles.privacyCard}>
-          <Card.Content>
-            <View style={styles.privacyHeader}>
-              <Icon name="shield" size={20} color="#FF9800" />
-              <Text style={styles.privacyTitle}>Privacy First</Text>
-            </View>
-            <Text style={styles.privacyText}>
-              Your biometric data never leaves your device. We use Zero-Knowledge Proofs 
-              to verify your identity without storing any personal information.
-            </Text>
-          </Card.Content>
-        </Card>
-      </ScrollView>
+      {/* Success Dialog */}
+      <Portal>
+        <Dialog
+          visible={showSuccessDialog}
+          onDismiss={() => {
+            setShowSuccessDialog(false);
+            navigation.goBack();
+          }}
+        >
+          <Dialog.Content style={styles.dialogContent}>
+            <Icon name="check-circle" size={64} color="#4CAF50" />
+            <Title style={styles.dialogTitle}>Attendance Marked!</Title>
+            <Paragraph style={styles.dialogText}>
+              Your attendance has been successfully recorded
+            </Paragraph>
+            {proofData && (
+              <View style={styles.proofContainer}>
+                <Text style={styles.proofLabel}>Proof ID:</Text>
+                <Text style={styles.proofId}>{proofData.proofId}</Text>
+              </View>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              onPress={() => {
+                setShowSuccessDialog(false);
+                navigation.navigate('AttendanceHistory');
+              }}
+            >
+              View History
+            </Button>
+            <Button
+              onPress={() => {
+                setShowSuccessDialog(false);
+                navigation.goBack();
+              }}
+            >
+              Done
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 };
@@ -345,8 +346,8 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 16,
     backgroundColor: 'white',
     elevation: 2,
@@ -356,189 +357,112 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 24,
-    paddingHorizontal: 32,
-  },
-  progressStep: {
-    alignItems: 'center',
-  },
-  progressCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#e0e0e0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  progressCircleActive: {
-    backgroundColor: '#6C63FF',
-  },
-  progressCircleComplete: {
-    backgroundColor: '#4CAF50',
-  },
-  progressNumber: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  progressLabel: {
-    fontSize: 12,
-    color: '#666',
-  },
-  progressLine: {
+  content: {
     flex: 1,
-    height: 2,
-    backgroundColor: '#e0e0e0',
-    marginHorizontal: 8,
-    marginBottom: 20,
+    padding: 16,
   },
-  progressLineComplete: {
-    backgroundColor: '#4CAF50',
-  },
-  card: {
-    margin: 16,
+  locationCard: {
+    marginBottom: 16,
     elevation: 3,
   },
-  iconContainer: {
+  locationHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 24,
-  },
-  cardTitle: {
-    textAlign: 'center',
-    fontSize: 24,
-    marginBottom: 16,
-  },
-  description: {
-    textAlign: 'center',
-    color: '#666',
-    marginBottom: 24,
   },
   locationInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
+    marginLeft: 16,
+    flex: 1,
   },
-  locationText: {
-    marginLeft: 8,
-    color: '#4CAF50',
-    fontSize: 16,
+  locationTitle: {
+    fontSize: 18,
   },
-  coordinatesContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  coordinateText: {
-    fontSize: 12,
+  locationAccuracy: {
+    fontSize: 14,
     color: '#666',
-    marginHorizontal: 8,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
-  nextButton: {
-    backgroundColor: '#6C63FF',
-  },
-  retryButton: {
-    marginTop: 16,
-  },
-  loader: {
-    marginVertical: 24,
-  },
-  zkpInfo: {
+  warningBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#FFEBEE',
     padding: 12,
     borderRadius: 8,
-    marginBottom: 24,
+    marginTop: 16,
   },
-  zkpText: {
+  warningText: {
     marginLeft: 8,
-    color: '#666',
     fontSize: 14,
+    color: '#FF5252',
+    flex: 1,
   },
-  authenticateButton: {
-    backgroundColor: '#6C63FF',
+  refreshButton: {
+    marginTop: 8,
+  },
+  biometricCard: {
     marginBottom: 16,
+    elevation: 3,
   },
-  authenticateButtonContent: {
+  biometricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  biometricInfo: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  biometricTitle: {
+    fontSize: 18,
+  },
+  biometricSubtitle: {
+    fontSize: 14,
+    color: '#666',
+  },
+  illustration: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  illustrationText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#999',
+  },
+  markButton: {
+    backgroundColor: '#6C63FF',
+    marginVertical: 16,
+  },
+  markButtonContent: {
     paddingVertical: 8,
   },
-  successTitle: {
-    textAlign: 'center',
-    fontSize: 28,
-    color: '#4CAF50',
-    marginBottom: 16,
+  dialogContent: {
+    alignItems: 'center',
+    paddingVertical: 24,
   },
-  successDescription: {
+  dialogTitle: {
+    marginTop: 16,
+    fontSize: 24,
+    textAlign: 'center',
+  },
+  dialogText: {
+    marginTop: 8,
     textAlign: 'center',
     color: '#666',
-    marginBottom: 32,
-    fontSize: 16,
   },
   proofContainer: {
-    backgroundColor: '#f5f5f5',
-    padding: 16,
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: '#F5F5F5',
     borderRadius: 8,
-    marginBottom: 16,
-    alignItems: 'center',
+    width: '100%',
   },
   proofLabel: {
     fontSize: 12,
     color: '#666',
-    marginBottom: 4,
   },
   proofId: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
-  timestampContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 32,
-  },
-  timestampText: {
-    marginLeft: 8,
-    color: '#666',
-  },
-  downloadButton: {
-    backgroundColor: '#4CAF50',
-    marginBottom: 16,
-  },
-  doneButton: {
-    borderColor: '#6C63FF',
-  },
-  privacyCard: {
-    margin: 16,
-    backgroundColor: '#FFF3E0',
-    elevation: 1,
-  },
-  privacyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  privacyTitle: {
-    marginLeft: 8,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#F57C00',
-  },
-  privacyText: {
     fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
+    fontWeight: '600',
+    color: '#333',
+    marginTop: 4,
   },
 });
 

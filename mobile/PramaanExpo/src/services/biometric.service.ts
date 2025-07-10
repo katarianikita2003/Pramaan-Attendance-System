@@ -1,6 +1,6 @@
-// src/services/biometric.service.ts
+// mobile/PramaanExpo/src/services/biometric.service.ts
 import * as LocalAuthentication from 'expo-local-authentication';
-import * as Camera from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
 import { Alert } from 'react-native';
@@ -91,7 +91,7 @@ class BiometricService {
           error: result.error,
         };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Authentication error:', error);
       return {
         success: false,
@@ -102,23 +102,34 @@ class BiometricService {
   }
 
   /**
-   * Capture face data for registration
+   * Capture face data for registration using ImagePicker
    */
   async captureFaceData(): Promise<FaceData | null> {
     try {
-      // Request camera permissions
-      const { status } = await Camera.requestCameraPermissionsAsync();
+      // Request camera permissions using ImagePicker
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Denied', 'Camera permission is required for face capture.');
         return null;
       }
 
-      // In a real app, this would open camera and capture face
-      // For simulation, we'll generate mock data
-      const mockImageUri = `${FileSystem.documentDirectory}face_${Date.now()}.jpg`;
+      // Launch camera
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return null;
+      }
+
+      const image = result.assets[0];
       
-      // Extract face features (in real app, use face detection ML)
-      const faceFeatures = await this.extractFaceFeatures(mockImageUri);
+      // Extract face features (simulated)
+      const faceFeatures = await this.extractFaceFeatures(image.uri);
       
       // Generate hash of face data
       const faceDataString = JSON.stringify(faceFeatures);
@@ -128,7 +139,7 @@ class BiometricService {
       );
 
       return {
-        imageUri: mockImageUri,
+        imageUri: image.uri,
         features: faceFeatures,
         hash,
       };
@@ -139,91 +150,30 @@ class BiometricService {
   }
 
   /**
-   * Capture fingerprint data for registration
+   * Extract face features from image (simulated)
    */
-  async captureFingerprintData(): Promise<string | null> {
-    try {
-      const result = await this.authenticate('Scan your fingerprint for registration');
-      
-      if (result.success && result.type === 'fingerprint') {
-        // In a real app, this would capture actual fingerprint template
-        // For simulation, we generate a unique hash
-        const fingerprintData = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          `fingerprint_${Date.now()}_${Math.random()}`
-        );
-        
-        return fingerprintData;
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Fingerprint capture error:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Verify liveness (anti-spoofing)
-   */
-  async verifyLiveness(imageUri: string): Promise<boolean> {
-    try {
-      // In a real app, this would use ML models for liveness detection
-      // Check for:
-      // - Eye blink detection
-      // - Head movement
-      // - Facial expression changes
-      // - 3D depth analysis
-      
-      // For simulation, we'll return true
-      return true;
-    } catch (error) {
-      console.error('Liveness verification error:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Compare biometric data for verification
-   */
-  async compareBiometrics(
-    capturedData: string,
-    storedCommitment: string,
-    type: 'face' | 'fingerprint'
-  ): Promise<boolean> {
-    try {
-      // In a real app, this would perform secure biometric matching
-      // Using techniques like:
-      // - Homomorphic encryption
-      // - Secure multiparty computation
-      // - Fuzzy extractors
-      
-      // For simulation, we'll use basic comparison
-      const capturedHash = await Crypto.digestStringAsync(
+  private async extractFaceFeatures(imageUri: string): Promise<any> {
+    // In a real app, this would use face detection ML
+    // For now, return simulated features
+    return {
+      faceId: await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
-        capturedData
-      );
-      
-      // This would be done securely without revealing the actual biometric
-      return true; // Simulated match
-    } catch (error) {
-      console.error('Biometric comparison error:', error);
-      return false;
-    }
+        imageUri + Date.now()
+      ),
+      landmarks: {
+        leftEye: { x: 0.3, y: 0.4 },
+        rightEye: { x: 0.7, y: 0.4 },
+        nose: { x: 0.5, y: 0.5 },
+        mouth: { x: 0.5, y: 0.7 }
+      },
+      confidence: 0.95
+    };
   }
 
-  // Private helper methods
-  private getBiometricType(): 'face' | 'fingerprint' {
-    if (this.supportedBiometrics.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-      return 'face';
-    } else if (this.supportedBiometrics.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-      return 'fingerprint';
-    }
-    return 'fingerprint'; // Default
-  }
-
-  private async generateBiometricHash(type: 'face' | 'fingerprint'): Promise<string> {
-    // In a real app, this would generate hash from actual biometric data
+  /**
+   * Generate biometric hash (simulated)
+   */
+  private async generateBiometricHash(type: string): Promise<string> {
     const data = `${type}_${Date.now()}_${Math.random()}`;
     return await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
@@ -231,27 +181,35 @@ class BiometricService {
     );
   }
 
-  private async extractFaceFeatures(imageUri: string): Promise<any> {
-    // In a real app, this would use face recognition ML models
-    // to extract facial features like:
-    // - Face landmarks (eyes, nose, mouth positions)
-    // - Face embeddings (128-512 dimensional vector)
-    // - Facial geometry measurements
-    
-    return {
-      landmarks: {
-        leftEye: { x: 0.3, y: 0.4 },
-        rightEye: { x: 0.7, y: 0.4 },
-        nose: { x: 0.5, y: 0.5 },
-        mouth: { x: 0.5, y: 0.7 },
-      },
-      embedding: Array(128).fill(0).map(() => Math.random()),
-      geometry: {
-        faceWidth: 0.4,
-        faceHeight: 0.6,
-        eyeDistance: 0.4,
-      },
-    };
+  /**
+   * Get biometric type
+   */
+  private getBiometricType(): 'face' | 'fingerprint' | 'none' {
+    if (this.supportedBiometrics.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+      return 'face';
+    }
+    if (this.supportedBiometrics.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+      return 'fingerprint';
+    }
+    return 'none';
+  }
+
+  /**
+   * Capture fingerprint data for registration
+   */
+  async captureFingerprintData(): Promise<string | null> {
+    try {
+      const result = await this.authenticate('Scan your fingerprint for registration');
+      
+      if (result.success && result.type === 'fingerprint') {
+        return result.data || null;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Fingerprint capture error:', error);
+      return null;
+    }
   }
 }
 

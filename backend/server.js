@@ -34,7 +34,7 @@ const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config({
-  path: process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development'
+  path: process.env.NODE_ENV === 'production' ? '.env.production' : '.env'
 });
 
 // Initialize express app
@@ -56,12 +56,94 @@ app.use(helmet({
     },
   },
 }));
-app.use(cors(corsOptions));
+
+// Enhanced CORS configuration
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps)
+    if (!origin) return callback(null, true);
+    
+    // Allow all origins in development
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    
+    // In production, check against whitelist
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:8081',
+      /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+      /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
+      /^exp:\/\/\d+\.\d+\.\d+\.\d+:\d+$/
+    ];
+    
+    const allowed = allowedOrigins.some(allowed => {
+      if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return allowed === origin;
+    });
+    
+    callback(allowed ? null : new Error('Not allowed by CORS'), allowed);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['X-Auth-Token']
+}));
+
 app.use(compression());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
+
+// Body parsing middleware with enhanced error handling
+app.use(express.json({ 
+  limit: '50mb',
+  verify: (req, res, buf, encoding) => {
+    try {
+      JSON.parse(buf.toString());
+    } catch (e) {
+      // Check if it's double-stringified JSON
+      const str = buf.toString();
+      if (str.startsWith('"') && str.endsWith('"')) {
+        try {
+          // Remove outer quotes and parse
+          const unescaped = JSON.parse(str);
+          req.body = JSON.parse(unescaped);
+          req._body = true; // Mark that body has been parsed
+          return;
+        } catch (innerError) {
+          // Fall through to error
+        }
+      }
+      
+      logger.error('Invalid JSON in request body:', e.message);
+      throw new SyntaxError('Invalid JSON');
+    }
+  }
+}));
+
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Logging middleware
+app.use(morgan('combined', { 
+  stream: { 
+    write: message => logger.info(message.trim()) 
+  },
+  skip: (req, res) => req.url === '/health' // Skip health check logs
+}));
+
 app.use(requestLogger);
+
+// Fix for double-stringified JSON (additional safety layer)
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === 'string') {
+    try {
+      req.body = JSON.parse(req.body);
+    } catch (e) {
+      // Not JSON string, continue
+    }
+  }
+  next();
+});
 
 // Serve static files
 app.use('/static', express.static(path.join(__dirname, 'public')));
@@ -73,25 +155,97 @@ app.get('/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV,
-    zkpStatus: zkpService.isInitialized ? 'ready' : 'initializing'
+    environment: process.env.NODE_ENV || 'development',
+    zkpStatus: zkpService.isInitialized ? 'initialized' : 'not initialized',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    services: {
+      database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+      zkp: zkpService.isInitialized ? 'active' : 'inactive'
+    }
   });
 });
 
-// API Routes - Using singular forms to match mobile app
+// API endpoint info
+app.get('/api', (req, res) => {
+  res.json({
+    message: 'Pramaan API v2.0',
+    version: '2.0.0',
+    endpoints: {
+      auth: '/api/auth',
+      organization: '/api/organization',
+      scholar: '/api/scholar',
+      attendance: '/api/attendance',
+      admin: '/api/admin'
+    },
+    documentation: '/api/docs'
+  });
+});
+
+// API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/organization', organizationRoutes);  // Changed from /api/organizations
-app.use('/api/scholar', scholarRoutes);            // Changed from /api/scholars
+app.use('/api/organization', organizationRoutes);
+app.use('/api/scholar', scholarRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+  logger.warn(`404 - Endpoint not found: ${req.method} ${req.url}`);
+  res.status(404).json({ 
+    error: 'Endpoint not found',
+    path: req.url,
+    method: req.method
+  });
 });
 
-// Error handling middleware
-app.use(errorHandler);
+// Enhanced error handling middleware
+app.use((err, req, res, next) => {
+  logger.error({
+    error: err.message,
+    stack: err.stack,
+    url: req.url,
+    method: req.method,
+    ip: req.ip,
+    body: req.body
+  });
+
+  // Handle specific error types
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ 
+      error: 'Invalid JSON in request body',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      error: 'Validation Error',
+      details: Object.values(err.errors).map(e => e.message)
+    });
+  }
+
+  if (err.name === 'CastError') {
+    return res.status(400).json({
+      error: 'Invalid ID format'
+    });
+  }
+
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern)[0];
+    return res.status(409).json({
+      error: `Duplicate value for ${field}`
+    });
+  }
+
+  // Default error response
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { 
+      stack: err.stack,
+      details: err
+    })
+  });
+});
 
 // Initialize server
 async function startServer() {
@@ -106,26 +260,37 @@ async function startServer() {
 
     // Start server - bind to all network interfaces
     const server = app.listen(PORT, '0.0.0.0', () => {
-      logger.info(`🚀 Pramaan Backend Server running on port ${PORT}`);
-      logger.info(`📱 Environment: ${process.env.NODE_ENV}`);
-      logger.info(`🔐 ZKP Status: ${zkpService.isInitialized ? 'Active' : 'Simulation Mode'}`);
-      logger.info(`🌐 Server accessible at: http://0.0.0.0:${PORT}`);
+      console.log('\n========================================');
+      console.log('🚀 Pramaan Backend Server Started');
+      console.log('========================================');
+      console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔐 ZKP Status: ${zkpService.isInitialized ? 'Active' : 'Simulation Mode'}`);
+      console.log(`🌐 Server URL: http://localhost:${PORT}`);
+      console.log('========================================');
       
-      // Get network interfaces
+      // Log all available network interfaces
       const networkInterfaces = os.networkInterfaces();
+      console.log('📡 Available on networks:');
       Object.keys(networkInterfaces).forEach((interfaceName) => {
         networkInterfaces[interfaceName].forEach((iface) => {
           if (iface.family === 'IPv4' && !iface.internal) {
-            logger.info(`📡 Local IP: http://${iface.address}:${PORT}`);
+            console.log(`   http://${iface.address}:${PORT}`);
           }
         });
       });
+      console.log('========================================\n');
+      
+      logger.info(`Server running on port ${PORT}`);
     });
 
     // Handle server errors
     server.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {
         logger.error(`Port ${PORT} is already in use`);
+        console.error(`\n❌ Error: Port ${PORT} is already in use!`);
+        console.error('Please either:');
+        console.error('1. Stop the other process using this port');
+        console.error('2. Change the PORT in your .env file\n');
         process.exit(1);
       } else {
         throw error;
@@ -134,31 +299,39 @@ async function startServer() {
 
   } catch (error) {
     logger.error('Failed to start server:', error);
+    console.error('\n❌ Failed to start server:', error.message);
     process.exit(1);
   }
 }
 
-// Handle graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully...');
-  await mongoose.connection.close();
-  process.exit(0);
-});
+// Graceful shutdown handlers
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} received, shutting down gracefully...`);
+  logger.info(`${signal} received, shutting down gracefully...`);
+  
+  try {
+    await mongoose.connection.close();
+    console.log('MongoDB connection closed');
+    process.exit(0);
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+    process.exit(1);
+  }
+};
 
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, shutting down gracefully...');
-  await mongoose.connection.close();
-  process.exit(0);
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
+  console.error('\n❌ Uncaught Exception:', error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('\n❌ Unhandled Rejection:', reason);
   process.exit(1);
 });
 

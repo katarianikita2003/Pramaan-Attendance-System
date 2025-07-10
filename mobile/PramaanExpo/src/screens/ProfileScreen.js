@@ -1,156 +1,26 @@
 // mobile/PramaanExpo/src/screens/ProfileScreen.js
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
-  Platform,
-  Image,
 } from 'react-native';
-import {
-  Card,
-  Title,
-  Paragraph,
-  Button,
-  TextInput,
-  Avatar,
-  List,
-  Divider,
-  Dialog,
-  Portal,
-  Switch,
-} from 'react-native-paper';
+import { Card, Avatar, List, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-// Remove ImagePicker import - we'll handle it differently
-// import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../contexts/AuthContext';
-import { adminService, scholarService } from '../services/api';
 
-const ProfileScreen = ({ navigation }) => {
-  const { user, userType, updateUser, logout } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  const [profileData, setProfileData] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-    phone: '',
-    department: '',
-    designation: '',
-  });
-  const [passwordData, setPasswordData] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  });
-  const [preferences, setPreferences] = useState({
-    notifications: true,
-    biometricAuth: true,
-    locationTracking: true,
-  });
+export const ProfileScreen = ({ navigation }) => {
+  const { user, userType, logout } = useAuth();
 
-  useEffect(() => {
-    loadProfileData();
-  }, []);
-
-  const loadProfileData = async () => {
-    try {
-      setLoading(true);
-      const service = userType === 'admin' ? adminService : scholarService;
-      const response = await service.getProfile();
-      
-      if (response.success) {
-        setProfileData({
-          name: response.profile.name,
-          email: response.profile.email,
-          phone: response.profile.phone || '',
-          department: response.profile.department || '',
-          designation: response.profile.designation || '',
-        });
-      }
-    } catch (error) {
-      console.error('Load profile error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpdateProfile = async () => {
-    try {
-      setLoading(true);
-      const service = userType === 'admin' ? adminService : scholarService;
-      const response = await service.updateProfile(profileData);
-      
-      if (response.success) {
-        updateUser({
-          ...user,
-          name: profileData.name,
-          email: profileData.email,
-        });
-        setEditing(false);
-        Alert.alert('Success', 'Profile updated successfully');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update profile');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleChangePassword = async () => {
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      Alert.alert('Error', 'New passwords do not match');
-      return;
-    }
-
-    if (passwordData.newPassword.length < 8) {
-      Alert.alert('Error', 'Password must be at least 8 characters');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      // API call to change password
-      Alert.alert('Success', 'Password changed successfully');
-      setShowPasswordDialog(false);
-      setPasswordData({
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: '',
-      });
-    } catch (error) {
-      Alert.alert('Error', 'Failed to change password');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleImagePicker = async () => {
-    // Placeholder for image picker
-    Alert.alert(
-      'Change Avatar',
-      'Choose an option',
-      [
-        { text: 'Camera', onPress: () => console.log('Camera selected') },
-        { text: 'Gallery', onPress: () => console.log('Gallery selected') },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
-
-  const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', onPress: logout, style: 'destructive' },
-      ]
-    );
+  const handleLogout = async () => {
+    await logout();
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    });
   };
 
   return (
@@ -159,263 +29,138 @@ const ProfileScreen = ({ navigation }) => {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Icon name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Profile</Text>
-        <TouchableOpacity onPress={() => setEditing(!editing)}>
-          <Icon name={editing ? 'close' : 'edit'} size={24} color="#333" />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Profile</Text>
+        <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Profile Header */}
-        <View style={styles.profileHeader}>
-          <TouchableOpacity onPress={handleImagePicker} disabled={!editing}>
-            <Avatar.Text
-              size={100}
-              label={profileData.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-              style={styles.avatar}
-            />
-            {editing && (
-              <View style={styles.editAvatarIcon}>
-                <Icon name="camera-alt" size={20} color="white" />
-              </View>
-            )}
-          </TouchableOpacity>
-          
-          <Title style={styles.profileName}>{profileData.name}</Title>
-          <Paragraph style={styles.profileRole}>
-            {userType === 'admin' ? 'Administrator' : `Scholar ID: ${user?.scholarId}`}
-          </Paragraph>
-          <Paragraph style={styles.profileOrg}>
-            {user?.organizationCode || 'Organization'}
-          </Paragraph>
-        </View>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Card style={styles.profileCard}>
+          <Card.Content style={styles.profileContent}>
+            <Avatar.Icon size={80} icon="account" style={styles.avatar} />
+            <Text style={styles.name}>{user?.name || 'User'}</Text>
+            <Text style={styles.email}>{user?.email || ''}</Text>
+            <Text style={styles.role}>{userType?.toUpperCase()}</Text>
+          </Card.Content>
+        </Card>
 
-        {/* Profile Information */}
         <Card style={styles.infoCard}>
-          <Card.Title title="Personal Information" />
-          <Card.Content>
-            <TextInput
-              label="Full Name"
-              value={profileData.name}
-              onChangeText={(text) => setProfileData({ ...profileData, name: text })}
-              mode="outlined"
-              disabled={!editing}
-              style={styles.input}
+          <List.Section>
+            <List.Subheader>Account Information</List.Subheader>
+            <List.Item
+              title="Organization"
+              description={user?.organizationName || 'Demo Organization'}
+              left={(props) => <List.Icon {...props} icon="domain" />}
             />
-            
-            <TextInput
-              label="Email"
-              value={profileData.email}
-              onChangeText={(text) => setProfileData({ ...profileData, email: text })}
-              mode="outlined"
-              disabled={!editing}
-              keyboardType="email-address"
-              style={styles.input}
+            <Divider />
+            <List.Item
+              title="Role"
+              description={userType}
+              left={(props) => <List.Icon {...props} icon="account-key" />}
             />
-            
-            <TextInput
-              label="Phone Number"
-              value={profileData.phone}
-              onChangeText={(text) => setProfileData({ ...profileData, phone: text })}
-              mode="outlined"
-              disabled={!editing}
-              keyboardType="phone-pad"
-              style={styles.input}
-            />
-            
-            {userType === 'scholar' && (
-              <TextInput
-                label="Department"
-                value={profileData.department}
-                onChangeText={(text) => setProfileData({ ...profileData, department: text })}
-                mode="outlined"
-                disabled={!editing}
-                style={styles.input}
-              />
-            )}
-            
-            {userType === 'admin' && (
-              <TextInput
-                label="Designation"
-                value={profileData.designation}
-                onChangeText={(text) => setProfileData({ ...profileData, designation: text })}
-                mode="outlined"
-                disabled={!editing}
-                style={styles.input}
-              />
-            )}
-            
-            {editing && (
-              <Button
-                mode="contained"
-                onPress={handleUpdateProfile}
-                loading={loading}
-                disabled={loading}
-                style={styles.saveButton}
-              >
-                Save Changes
-              </Button>
-            )}
-          </Card.Content>
+          </List.Section>
         </Card>
 
-        {/* Security Settings */}
-        <Card style={styles.securityCard}>
-          <Card.Title title="Security & Privacy" />
-          <Card.Content>
-            <List.Item
-              title="Change Password"
-              description="Update your account password"
-              left={(props) => <List.Icon {...props} icon="lock" />}
-              right={(props) => <List.Icon {...props} icon="chevron-right" />}
-              onPress={() => setShowPasswordDialog(true)}
-            />
-            
-            <Divider />
-            
-            <List.Item
-              title="Biometric Authentication"
-              description="Use fingerprint or face to login"
-              left={(props) => <List.Icon {...props} icon="fingerprint" />}
-              right={() => (
-                <Switch
-                  value={preferences.biometricAuth}
-                  onValueChange={(value) => 
-                    setPreferences({ ...preferences, biometricAuth: value })
-                  }
-                />
-              )}
-            />
-            
-            <Divider />
-            
-            <List.Item
-              title="Location Access"
-              description="Allow location for attendance marking"
-              left={(props) => <List.Icon {...props} icon="map-marker" />}
-              right={() => (
-                <Switch
-                  value={preferences.locationTracking}
-                  onValueChange={(value) => 
-                    setPreferences({ ...preferences, locationTracking: value })
-                  }
-                />
-              )}
-            />
-          </Card.Content>
-        </Card>
-
-        {/* Preferences */}
-        <Card style={styles.preferencesCard}>
-          <Card.Title title="Preferences" />
-          <Card.Content>
-            <List.Item
-              title="Push Notifications"
-              description="Receive attendance reminders"
-              left={(props) => <List.Icon {...props} icon="notifications" />}
-              right={() => (
-                <Switch
-                  value={preferences.notifications}
-                  onValueChange={(value) => 
-                    setPreferences({ ...preferences, notifications: value })
-                  }
-                />
-              )}
-            />
-            
-            <Divider />
-            
-            <List.Item
-              title="About Pramaan"
-              description="Version 1.0.0"
-              left={(props) => <List.Icon {...props} icon="info" />}
-              onPress={() => {
-                Alert.alert(
-                  'About Pramaan',
-                  'Zero-Knowledge Proof based Attendance System\n\nVersion: 1.0.0\nDeveloped with privacy in mind.',
-                  [{ text: 'OK' }]
-                );
-              }}
-            />
-            
-            <Divider />
-            
-            <List.Item
-              title="Privacy Policy"
-              left={(props) => <List.Icon {...props} icon="privacy-tip" />}
-              right={(props) => <List.Icon {...props} icon="open-in-new" />}
-              onPress={() => {
-                // Open privacy policy
-              }}
-            />
-          </Card.Content>
-        </Card>
-
-        {/* Logout Button */}
-        <Button
-          mode="outlined"
-          onPress={handleLogout}
-          style={styles.logoutButton}
-          contentStyle={styles.logoutButtonContent}
-          icon="logout"
-        >
-          Logout
-        </Button>
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+          <Icon name="logout" size={20} color="#FF5252" />
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
       </ScrollView>
+    </SafeAreaView>
+  );
+};
 
-      {/* Change Password Dialog */}
-      <Portal>
-        <Dialog
-          visible={showPasswordDialog}
-          onDismiss={() => setShowPasswordDialog(false)}
-        >
-          <Dialog.Title>Change Password</Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label="Current Password"
-              value={passwordData.currentPassword}
-              onChangeText={(text) => 
-                setPasswordData({ ...passwordData, currentPassword: text })
-              }
-              mode="outlined"
-              secureTextEntry
-              style={styles.dialogInput}
+// mobile/PramaanExpo/src/screens/SettingsScreen.js
+export const SettingsScreen = ({ navigation }) => {
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Settings</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      <ScrollView>
+        <Card style={styles.settingsCard}>
+          <List.Section>
+            <List.Subheader>Organization Settings</List.Subheader>
+            <List.Item
+              title="Campus Boundaries"
+              description="Set geofencing boundaries"
+              left={(props) => <List.Icon {...props} icon="map-marker" />}
+              onPress={() => {}}
             />
-            
-            <TextInput
-              label="New Password"
-              value={passwordData.newPassword}
-              onChangeText={(text) => 
-                setPasswordData({ ...passwordData, newPassword: text })
-              }
-              mode="outlined"
-              secureTextEntry
-              style={styles.dialogInput}
+            <Divider />
+            <List.Item
+              title="Working Hours"
+              description="Configure attendance timings"
+              left={(props) => <List.Icon {...props} icon="clock" />}
+              onPress={() => {}}
             />
-            
-            <TextInput
-              label="Confirm New Password"
-              value={passwordData.confirmPassword}
-              onChangeText={(text) => 
-                setPasswordData({ ...passwordData, confirmPassword: text })
-              }
-              mode="outlined"
-              secureTextEntry
-              style={styles.dialogInput}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setShowPasswordDialog(false)}>Cancel</Button>
-            <Button 
-              onPress={handleChangePassword}
-              loading={loading}
-              disabled={loading}
-            >
-              Change
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+          </List.Section>
+        </Card>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+// mobile/PramaanExpo/src/screens/ReportsScreen.js
+export const ReportsScreen = ({ navigation }) => {
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Reports</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      <View style={styles.centerContent}>
+        <Icon name="insert-chart" size={64} color="#E0E0E0" />
+        <Text style={styles.emptyText}>Reports coming soon</Text>
+      </View>
+    </SafeAreaView>
+  );
+};
+
+// mobile/PramaanExpo/src/screens/VerifyProofScreen.js
+export const VerifyProofScreen = ({ navigation }) => {
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Verify Proof</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      <View style={styles.centerContent}>
+        <Icon name="qr-code-scanner" size={64} color="#E0E0E0" />
+        <Text style={styles.emptyText}>Proof verification coming soon</Text>
+      </View>
+    </SafeAreaView>
+  );
+};
+
+// mobile/PramaanExpo/src/screens/DownloadReportScreen.js
+export const DownloadReportScreen = ({ navigation }) => {
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Download Report</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      <View style={styles.centerContent}>
+        <Icon name="download" size={64} color="#E0E0E0" />
+        <Text style={styles.emptyText}>Report download coming soon</Text>
+      </View>
     </SafeAreaView>
   );
 };
@@ -427,8 +172,8 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 16,
     backgroundColor: 'white',
     elevation: 2,
@@ -438,77 +183,71 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
-  scrollContent: {
-    paddingBottom: 32,
+  content: {
+    padding: 16,
   },
-  profileHeader: {
+  profileCard: {
+    marginBottom: 16,
+    elevation: 3,
+  },
+  profileContent: {
     alignItems: 'center',
-    paddingVertical: 32,
-    backgroundColor: 'white',
+    paddingVertical: 20,
   },
   avatar: {
     backgroundColor: '#6C63FF',
-  },
-  editAvatarIcon: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#6C63FF',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: 'white',
-  },
-  profileName: {
-    fontSize: 24,
-    fontWeight: '600',
-    marginTop: 16,
-    color: '#333',
-  },
-  profileRole: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 4,
-  },
-  profileOrg: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 2,
-  },
-  infoCard: {
-    margin: 16,
-    elevation: 2,
-  },
-  input: {
     marginBottom: 16,
   },
-  saveButton: {
-    marginTop: 8,
-    backgroundColor: '#6C63FF',
+  name: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
   },
-  securityCard: {
-    margin: 16,
-    marginTop: 0,
-    elevation: 2,
+  email: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 8,
   },
-  preferencesCard: {
-    margin: 16,
-    marginTop: 0,
+  role: {
+    fontSize: 14,
+    color: '#6C63FF',
+    fontWeight: '600',
+  },
+  infoCard: {
+    marginBottom: 16,
     elevation: 2,
   },
   logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    elevation: 2,
+  },
+  logoutText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#FF5252',
+    fontWeight: '600',
+  },
+  settingsCard: {
     margin: 16,
-    borderColor: '#FF5252',
+    elevation: 2,
   },
-  logoutButtonContent: {
-    paddingVertical: 8,
+  centerContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  dialogInput: {
-    marginBottom: 12,
+  emptyText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#999',
   },
 });
 
+// Export default screens
 export default ProfileScreen;

@@ -126,6 +126,13 @@ adminSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.credentials.passwordHash);
 };
 
+// Method to set password (use this when setting/updating passwords)
+adminSchema.methods.setPassword = async function(plainPassword) {
+  const salt = await bcrypt.genSalt(10);
+  this.credentials.passwordHash = await bcrypt.hash(plainPassword, salt);
+  this.credentials.lastPasswordChange = new Date();
+};
+
 // Method to check permission
 adminSchema.methods.hasPermission = function(permission) {
   if (this.role === 'super_admin') return true;
@@ -154,19 +161,16 @@ adminSchema.methods.recordLogin = async function(ipAddress, userAgent, success =
   return this.save();
 };
 
-// Pre-save hook to hash password
-adminSchema.pre('save', async function(next) {
-  if (!this.isModified('credentials.passwordHash')) return next();
+// Method to handle login attempts
+adminSchema.methods.incLoginAttempts = async function() {
+  // Implement login attempt tracking if needed
+  return this.save();
+};
 
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.credentials.passwordHash = await bcrypt.hash(this.credentials.passwordHash, salt);
-    this.credentials.lastPasswordChange = new Date();
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
+adminSchema.methods.resetLoginAttempts = async function() {
+  // Reset login attempts if implemented
+  return this.save();
+};
 
 const Admin = mongoose.model('Admin', adminSchema);
 

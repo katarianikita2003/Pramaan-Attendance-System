@@ -14,26 +14,27 @@ import {
   Title,
   Paragraph,
   Button,
-  FAB,
   ProgressBar,
   Chip,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../contexts/AuthContext';
-import { scholarService } from '../services/api';
+import { scholarService, attendanceService } from '../services/api';
 
 const ScholarDashboardScreen = ({ navigation }) => {
   const { user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
-    totalPresent: 0,
-    totalAbsent: 0,
     totalDays: 0,
+    presentDays: 0,
+    absentDays: 0,
     attendancePercentage: 0,
+    lastAttendance: null,
+    streak: 0,
   });
-  const [todayAttendance, setTodayAttendance] = useState(null);
+  const [todayAttendance, setTodayAttendance] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
@@ -42,15 +43,16 @@ const ScholarDashboardScreen = ({ navigation }) => {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-      const response = await scholarService.getStats();
       
-      if (response.success) {
-        setStats(response.stats);
-        // Check if attendance is marked today
-        const today = new Date().toDateString();
-        // This would come from the API
-        setTodayAttendance(null); // or 'present'/'absent'
+      // Get scholar stats
+      const statsResponse = await scholarService.getStats();
+      if (statsResponse.success) {
+        setStats(statsResponse.stats);
       }
+
+      // Check today's attendance
+      const todayResponse = await attendanceService.checkTodayAttendance();
+      setTodayAttendance(todayResponse.marked);
     } catch (error) {
       console.error('Dashboard load error:', error);
     } finally {
@@ -66,32 +68,69 @@ const ScholarDashboardScreen = ({ navigation }) => {
 
   const handleMarkAttendance = () => {
     if (todayAttendance) {
-      Alert.alert(
-        'Already Marked',
-        'You have already marked your attendance for today.',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('Already Marked', 'You have already marked attendance for today.');
     } else {
       navigation.navigate('MarkAttendance');
     }
   };
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  };
+  const AttendanceCard = () => (
+    <Card style={styles.attendanceCard}>
+      <Card.Content>
+        <View style={styles.attendanceHeader}>
+          <Icon 
+            name={todayAttendance ? 'check-circle' : 'radio-button-unchecked'} 
+            size={48} 
+            color={todayAttendance ? '#4CAF50' : '#FF5252'} 
+          />
+          <View style={styles.attendanceInfo}>
+            <Title style={styles.attendanceTitle}>
+              {todayAttendance ? 'Attendance Marked' : 'Not Marked Yet'}
+            </Title>
+            <Paragraph style={styles.attendanceSubtitle}>
+              {new Date().toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })}
+            </Paragraph>
+          </View>
+        </View>
+        
+        {!todayAttendance && (
+          <Button
+            mode="contained"
+            onPress={handleMarkAttendance}
+            style={styles.markButton}
+            icon="fingerprint"
+          >
+            Mark Attendance
+          </Button>
+        )}
+      </Card.Content>
+    </Card>
+  );
+
+  const StatsCard = ({ title, value, color, icon }) => (
+    <Card style={styles.statCard}>
+      <Card.Content style={styles.statContent}>
+        <Icon name={icon} size={24} color={color} />
+        <Text style={[styles.statValue, { color }]}>{value}</Text>
+        <Text style={styles.statLabel}>{title}</Text>
+      </Card.Content>
+    </Card>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>{getGreeting()},</Text>
+          <Text style={styles.welcomeText}>Welcome back,</Text>
           <Text style={styles.userName}>{user?.name || 'Scholar'}</Text>
         </View>
-        <TouchableOpacity onPress={logout}>
-          <Icon name="logout" size={24} color="#666" />
+        <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+          <Icon name="account-circle" size={40} color="#6C63FF" />
         </TouchableOpacity>
       </View>
 
@@ -101,131 +140,111 @@ const ScholarDashboardScreen = ({ navigation }) => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Today's Status */}
-        <Card style={styles.statusCard}>
+        {/* Today's Attendance */}
+        <AttendanceCard />
+
+        {/* Attendance Overview */}
+        <Card style={styles.overviewCard}>
+          <Card.Title title="Attendance Overview" />
           <Card.Content>
-            <View style={styles.statusHeader}>
-              <Title style={styles.statusTitle}>Today's Attendance</Title>
-              {todayAttendance ? (
-                <Chip
-                  mode="flat"
-                  style={[
-                    styles.statusChip,
-                    todayAttendance === 'present' 
-                      ? styles.presentChip 
-                      : styles.absentChip
-                  ]}
-                >
-                  {todayAttendance === 'present' ? 'Marked' : 'Absent'}
-                </Chip>
-              ) : (
-                <Chip mode="flat" style={styles.notMarkedChip}>
-                  Not Marked
-                </Chip>
-              )}
+            <View style={styles.progressContainer}>
+              <View style={styles.progressHeader}>
+                <Text style={styles.progressLabel}>Overall Attendance</Text>
+                <Text style={styles.progressValue}>
+                  {stats.attendancePercentage.toFixed(1)}%
+                </Text>
+              </View>
+              <ProgressBar 
+                progress={stats.attendancePercentage / 100} 
+                color="#6C63FF" 
+                style={styles.progressBar}
+              />
             </View>
-            
-            {!todayAttendance && (
-              <Button
-                mode="contained"
-                icon="fingerprint"
-                onPress={handleMarkAttendance}
-                style={styles.markButton}
-                contentStyle={styles.markButtonContent}
-              >
-                Mark Attendance Now
-              </Button>
+
+            {stats.streak > 0 && (
+              <View style={styles.streakContainer}>
+                <Icon name="local-fire-department" size={24} color="#FF6B6B" />
+                <Text style={styles.streakText}>
+                  {stats.streak} day streak!
+                </Text>
+              </View>
             )}
           </Card.Content>
         </Card>
 
-        {/* Attendance Overview */}
-        <Card style={styles.overviewCard}>
-          <Card.Title 
-            title="Attendance Overview" 
-            subtitle={`Overall Attendance: ${stats.attendancePercentage}%`}
+        {/* Stats Grid */}
+        <View style={styles.statsGrid}>
+          <StatsCard
+            title="Total Days"
+            value={stats.totalDays}
+            color="#2196F3"
+            icon="calendar-today"
           />
-          <Card.Content>
-            <ProgressBar 
-              progress={stats.attendancePercentage / 100} 
-              color="#4CAF50" 
-              style={styles.progressBar}
-            />
-            
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{stats.totalPresent}</Text>
-                <Text style={styles.statLabel}>Present</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{stats.totalAbsent}</Text>
-                <Text style={styles.statLabel}>Absent</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{stats.totalDays}</Text>
-                <Text style={styles.statLabel}>Total Days</Text>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
+          <StatsCard
+            title="Present"
+            value={stats.presentDays}
+            color="#4CAF50"
+            icon="check-circle"
+          />
+          <StatsCard
+            title="Absent"
+            value={stats.absentDays}
+            color="#FF5252"
+            icon="cancel"
+          />
+          <StatsCard
+            title="Percentage"
+            value={`${stats.attendancePercentage.toFixed(0)}%`}
+            color="#FF9800"
+            icon="pie-chart"
+          />
+        </View>
 
         {/* Quick Actions */}
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        
-        <TouchableOpacity 
-          style={styles.actionItem}
-          onPress={() => navigation.navigate('AttendanceHistory')}
-        >
-          <Icon name="history" size={24} color="#6C63FF" />
-          <Text style={styles.actionText}>View Attendance History</Text>
-          <Icon name="chevron-right" size={24} color="#999" />
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.actionItem}
-          onPress={() => navigation.navigate('VerifyProof')}
-        >
-          <Icon name="verified-user" size={24} color="#6C63FF" />
-          <Text style={styles.actionText}>Verify Attendance Proof</Text>
-          <Icon name="chevron-right" size={24} color="#999" />
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.actionItem}
-          onPress={() => navigation.navigate('DownloadReport')}
-        >
-          <Icon name="download" size={24} color="#6C63FF" />
-          <Text style={styles.actionText}>Download Report</Text>
-          <Icon name="chevron-right" size={24} color="#999" />
-        </TouchableOpacity>
-
-        {/* Privacy Notice */}
-        <Card style={styles.privacyCard}>
+        <Card style={styles.actionsCard}>
+          <Card.Title title="Quick Actions" />
           <Card.Content>
-            <View style={styles.privacyHeader}>
-              <Icon name="lock" size={20} color="#FFA000" />
-              <Title style={styles.privacyTitle}>Privacy Protected</Title>
-            </View>
-            <Paragraph style={styles.privacyText}>
-              Your biometric data never leaves your device. Pramaan uses 
-              Zero-Knowledge Proof technology to verify your identity without 
-              storing or transmitting your biometric information.
-            </Paragraph>
+            <Button
+              mode="outlined"
+              icon="history"
+              onPress={() => navigation.navigate('AttendanceHistory')}
+              style={styles.actionButton}
+            >
+              View History
+            </Button>
+            <Button
+              mode="outlined"
+              icon="download"
+              onPress={() => navigation.navigate('DownloadReport')}
+              style={styles.actionButton}
+            >
+              Download Report
+            </Button>
+            <Button
+              mode="outlined"
+              icon="qrcode"
+              onPress={() => navigation.navigate('VerifyProof')}
+              style={styles.actionButton}
+            >
+              Verify Proof
+            </Button>
           </Card.Content>
         </Card>
-      </ScrollView>
 
-      {/* FAB for Mark Attendance */}
-      {!todayAttendance && (
-        <FAB
-          icon="fingerprint"
-          label="Mark Attendance"
-          style={styles.fab}
-          onPress={handleMarkAttendance}
-        />
-      )}
+        {/* Last Attendance */}
+        {stats.lastAttendance && (
+          <Card style={styles.lastAttendanceCard}>
+            <Card.Content>
+              <View style={styles.lastAttendanceHeader}>
+                <Icon name="access-time" size={20} color="#666" />
+                <Text style={styles.lastAttendanceText}>
+                  Last attendance: {new Date(stats.lastAttendance).toLocaleString()}
+                </Text>
+              </View>
+            </Card.Content>
+          </Card>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -243,7 +262,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     elevation: 2,
   },
-  greeting: {
+  welcomeText: {
     fontSize: 14,
     color: '#666',
   },
@@ -253,126 +272,119 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 20,
   },
-  statusCard: {
+  attendanceCard: {
     margin: 16,
     elevation: 3,
   },
-  statusHeader: {
+  attendanceHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
-  statusTitle: {
-    fontSize: 18,
+  attendanceInfo: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  attendanceTitle: {
+    fontSize: 20,
     fontWeight: '600',
   },
-  statusChip: {
-    elevation: 0,
-  },
-  presentChip: {
-    backgroundColor: '#E8F5E9',
-  },
-  absentChip: {
-    backgroundColor: '#FFEBEE',
-  },
-  notMarkedChip: {
-    backgroundColor: '#FFF3E0',
+  attendanceSubtitle: {
+    fontSize: 14,
+    color: '#666',
   },
   markButton: {
+    marginTop: 8,
     backgroundColor: '#6C63FF',
   },
-  markButtonContent: {
-    paddingVertical: 8,
-  },
   overviewCard: {
-    margin: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
     elevation: 2,
+  },
+  progressContainer: {
+    marginBottom: 16,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  progressLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  progressValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#6C63FF',
   },
   progressBar: {
     height: 8,
     borderRadius: 4,
-    marginVertical: 16,
   },
-  statsRow: {
+  streakContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
-    marginTop: 8,
+    backgroundColor: '#FFF3E0',
+    padding: 12,
+    borderRadius: 8,
   },
-  statItem: {
+  streakText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FF6B6B',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  statCard: {
+    width: '48%',
+    marginBottom: 12,
+    elevation: 2,
+  },
+  statContent: {
     alignItems: 'center',
-    flex: 1,
+    paddingVertical: 16,
   },
-  statNumber: {
+  statValue: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    marginVertical: 8,
   },
   statLabel: {
     fontSize: 12,
     color: '#666',
-    marginTop: 4,
   },
-  statDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: '#e0e0e0',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 16,
-    marginTop: 24,
-    marginBottom: 12,
-    color: '#333',
-  },
-  actionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+  actionsCard: {
     marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 8,
+    marginBottom: 16,
+    elevation: 2,
+  },
+  actionButton: {
+    marginBottom: 12,
+    borderColor: '#6C63FF',
+  },
+  lastAttendanceCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
     elevation: 1,
   },
-  actionText: {
-    flex: 1,
-    marginLeft: 16,
-    fontSize: 16,
-    color: '#333',
-  },
-  privacyCard: {
-    margin: 16,
-    marginTop: 24,
-    backgroundColor: '#FFF8E1',
-    elevation: 1,
-  },
-  privacyHeader: {
+  lastAttendanceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
   },
-  privacyTitle: {
-    fontSize: 16,
+  lastAttendanceText: {
     marginLeft: 8,
-    color: '#F57C00',
-  },
-  privacyText: {
     fontSize: 14,
     color: '#666',
-    lineHeight: 20,
-  },
-  fab: {
-    position: 'absolute',
-    margin: 16,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#6C63FF',
   },
 });
 

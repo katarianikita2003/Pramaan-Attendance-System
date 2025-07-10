@@ -104,22 +104,22 @@ export const adminLogin = async (req, res) => {
 
     logger.info(`Admin login attempt for: ${email}`);
 
-    // Find admin by email
-    const admin = await Admin.findOne({ email }).populate('organizationId');
+    // Find admin by email - email is nested in personalInfo
+    const admin = await Admin.findOne({ 'personalInfo.email': email }).populate('organizationId');
     
     if (!admin) {
       logger.warn(`Admin not found: ${email}`);
       return res.status(404).json({ message: 'Invalid credentials' });
     }
 
-    // Check password field - IMPORTANT: Use 'password', not 'passwordHash'
-    if (!admin.password) {
+    // Check password - password is in credentials.passwordHash
+    if (!admin.credentials?.passwordHash) {
       logger.error(`No password found for admin: ${email}`);
       return res.status(500).json({ message: 'Account configuration error' });
     }
 
-    // Compare password
-    const isValidPassword = await bcrypt.compare(password, admin.password);
+    // Use the model's comparePassword method
+    const isValidPassword = await admin.comparePassword(password);
     
     if (!isValidPassword) {
       logger.warn(`Invalid password for admin: ${email}`);
@@ -144,8 +144,8 @@ export const adminLogin = async (req, res) => {
       token,
       admin: {
         id: admin._id,
-        name: admin.name,
-        email: admin.email,
+        name: admin.personalInfo.name,
+        email: admin.personalInfo.email,
         organizationId: admin.organizationId._id
       },
       organization: admin.organizationId

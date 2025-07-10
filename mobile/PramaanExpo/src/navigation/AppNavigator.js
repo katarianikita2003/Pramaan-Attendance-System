@@ -3,6 +3,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
+import { ActivityIndicator, View } from 'react-native';
 
 // Import screens
 import LoginScreen from '../screens/LoginScreen';
@@ -11,14 +12,15 @@ import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import ScholarDashboardScreen from '../screens/ScholarDashboardScreen';
 import AddScholarScreen from '../screens/AddScholarScreen';
 import AttendanceScreen from '../screens/AttendanceScreen';
-import ReportsScreen from '../screens/ReportsScreen';
-import ProfileScreen from '../screens/ProfileScreen';
-import SettingsScreen from '../screens/SettingsScreen';
-
-// Additional screens for Scholar
 import AttendanceHistoryScreen from '../screens/AttendanceHistoryScreen';
-import VerifyProofScreen from '../screens/VerifyProofScreen';
-import DownloadReportScreen from '../screens/DownloadReportScreen';
+
+// Import multiple screens from ProfileScreen file
+import ProfileScreen, { 
+  ReportsScreen, 
+  SettingsScreen, 
+  VerifyProofScreen, 
+  DownloadReportScreen 
+} from '../screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -26,8 +28,12 @@ const AppNavigator = () => {
   const { isAuthenticated, userType, loading } = useAuth();
 
   if (loading) {
-    // You can return a loading screen here
-    return null;
+    // Show loading screen while checking auth status
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+      </View>
+    );
   }
 
   return (
@@ -76,6 +82,10 @@ const AppNavigator = () => {
                   name="Profile" 
                   component={ProfileScreen} 
                 />
+                <Stack.Screen 
+                  name="VerifyProof" 
+                  component={VerifyProofScreen} 
+                />
               </>
             ) : (
               // Scholar Stack
@@ -89,8 +99,20 @@ const AppNavigator = () => {
                   component={AttendanceScreen} 
                 />
                 <Stack.Screen 
+                  name="AttendanceHistory" 
+                  component={AttendanceHistoryScreen} 
+                />
+                <Stack.Screen 
                   name="Profile" 
                   component={ProfileScreen} 
+                />
+                <Stack.Screen 
+                  name="VerifyProof" 
+                  component={VerifyProofScreen} 
+                />
+                <Stack.Screen 
+                  name="DownloadReport" 
+                  component={DownloadReportScreen} 
                 />
               </>
             )}

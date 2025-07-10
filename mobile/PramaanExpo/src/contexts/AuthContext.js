@@ -1,4 +1,4 @@
-// mobile/PramaanExpo/src/contexts/AuthContext.js
+// mobile/PramaanExpo/src/contexts/AuthContext.js - FIXED VERSION
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authService } from '../services/api';
@@ -49,24 +49,56 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       setError(null);
 
+      console.log('AuthContext: Starting login for type:', type);
+      console.log('AuthContext: Parameters:', {
+        email: email,
+        passwordLength: password?.length,
+        organizationCode: organizationCode,
+        type: type
+      });
+
       let response;
       if (type === 'admin') {
+        console.log('AuthContext: Calling adminLogin');
         response = await authService.adminLogin(email, password);
-      } else {
+      } else if (type === 'scholar') {
+        console.log('AuthContext: Calling scholarLogin');
         response = await authService.scholarLogin(email, password, organizationCode);
+      } else {
+        console.error('AuthContext: Invalid user type:', type);
+        throw new Error('Invalid user type');
       }
 
-      if (response.success) {
-        setUser(response.user);
-        setUserType(response.user.userType || type);
+      console.log('AuthContext: Login response:', response);
+
+      if (response && (response.success || response.token)) {
+        // Store auth data
+        if (response.token) {
+          await AsyncStorage.setItem('authToken', response.token);
+        }
+        
+        const userData = response.user || response.admin || response.scholar;
+        if (userData) {
+          await AsyncStorage.setItem('userData', JSON.stringify(userData));
+          await AsyncStorage.setItem('userType', userData.userType || type);
+          
+          setUser(userData);
+          setUserType(userData.userType || type);
+        }
+
+        console.log('AuthContext: Auth data saved, updating state');
+        console.log('AuthContext: Login successful, isAuthenticated:', !!userData);
+
         return { success: true };
       } else {
-        setError(response.error || 'Login failed');
-        return { success: false, error: response.error };
+        const errorMsg = response?.error || response?.message || 'Login failed';
+        console.log('AuthContext: Login failed:', errorMsg);
+        setError(errorMsg);
+        return { success: false, error: errorMsg };
       }
     } catch (error) {
-      console.error('Login error:', error);
-      const errorMessage = error.response?.data?.error || 'Login failed. Please try again.';
+      console.error('AuthContext: Login error:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Login failed. Please try again.';
       setError(errorMessage);
       return { success: false, error: errorMessage };
     } finally {
@@ -77,10 +109,21 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       setLoading(true);
-      await authService.logout();
+      
+      // Clear AsyncStorage
+      await AsyncStorage.multiRemove([
+        'authToken',
+        'userData',
+        'userType',
+        'organizationCode'
+      ]);
+      
+      // Clear state
       setUser(null);
       setUserType(null);
       setError(null);
+      
+      console.log('AuthContext: Logout successful');
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
