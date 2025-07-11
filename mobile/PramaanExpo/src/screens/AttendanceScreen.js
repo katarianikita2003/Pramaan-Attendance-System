@@ -20,7 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as LocalAuthentication from 'expo-local-authentication';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import { attendanceService, organizationService } from '../services/api';
 import { APP_CONFIG } from '../config/constants';
 

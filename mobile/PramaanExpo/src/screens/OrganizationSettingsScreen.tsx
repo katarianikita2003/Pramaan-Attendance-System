@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Card, Title, List, Switch, Divider, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 
 export default function OrganizationSettingsScreen({ navigation }) {
   const [notifications, setNotifications] = useState(true);

@@ -323,4 +323,5 @@ class BiometricService {
   }
 }
 
-export default new BiometricService();
+const biometricService = new BiometricService();
+export default biometricService;

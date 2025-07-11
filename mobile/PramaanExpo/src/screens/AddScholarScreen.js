@@ -24,12 +24,12 @@ import {
   ProgressBar,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+// FIXED: Using Expo's built-in vector icons
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../contexts/AuthContext';
 import { adminService } from '../services/api';
-// Fixed import - using .js extension explicitly
-import biometricService from '../services/biometric.service.js';
+import biometricService from '../services/biometric.service';
 
 const AddScholarScreen = ({ navigation }) => {
   const { user } = useAuth();

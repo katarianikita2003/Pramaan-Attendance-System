@@ -24,7 +24,7 @@ import * as Location from 'expo-location';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import biometricService from '../services/biometric.service';
 import zkpService from '../services/zkp.service';
 import api from '../services/api';

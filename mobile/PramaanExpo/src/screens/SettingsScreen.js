@@ -24,7 +24,7 @@ import {
   RadioButton,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 // Remove MapView imports - we'll create a placeholder
 // import MapView, { Polygon, Marker, Circle } from 'react-native-maps';
 import * as Location from 'expo-location';

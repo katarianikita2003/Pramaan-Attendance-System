@@ -24,7 +24,7 @@ import {
   IconButton,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 // Remove DateTimePicker import - we'll use a custom solution
 import { adminService } from '../services/api';
 
