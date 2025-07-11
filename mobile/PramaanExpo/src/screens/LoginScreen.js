@@ -1,4 +1,4 @@
-// mobile/PramaanExpo/src/screens/LoginScreen.js - FIXED VERSION
+// mobile/PramaanExpo/src/screens/LoginScreen.js
 import React, { useState } from 'react';
 import {
   View,
@@ -19,7 +19,7 @@ import {
   Divider,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialIcons as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../contexts/AuthContext';
 
 const LoginScreen = ({ navigation }) => {

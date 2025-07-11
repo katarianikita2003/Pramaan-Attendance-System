@@ -1,55 +1,73 @@
-// mobile/PramaanExpo/App.js
+// App.js - Main Application Entry Point
 import React from 'react';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { Provider as PaperProvider, DefaultTheme } from 'react-native-paper';
+import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider } from './src/contexts/AuthContext';
+import { LocationProvider } from './src/contexts/LocationContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { LogBox } from 'react-native';
 
-// Ignore specific warnings if needed
+// Ignore specific warnings for cleaner development
 LogBox.ignoreLogs([
-  'Non-serializable values were found in the navigation state',
+  'Warning: componentWillReceiveProps',
+  'Warning: componentWillMount',
+  'VirtualizedLists should never be nested',
+  'Setting a timer',
 ]);
 
-// Create a complete theme configuration
+// Custom theme for React Native Paper
 const theme = {
   ...DefaultTheme,
-  roundness: 2,
-  version: 3,
   colors: {
     ...DefaultTheme.colors,
     primary: '#6C63FF',
-    secondary: '#FF6B6B',
-    tertiary: '#03dac6',
-    quaternary: '#018786',
-    surface: '#ffffff',
-    background: '#f6f6f6',
-    error: '#B00020',
-    onPrimary: '#ffffff',
-    onSecondary: '#000000',
-    onBackground: '#000000',
-    onSurface: '#000000',
-    onError: '#ffffff',
-    text: '#000000',
-    disabled: 'rgba(0, 0, 0, 0.26)',
-    placeholder: 'rgba(0, 0, 0, 0.54)',
+    accent: '#FF6B6B',
+    background: '#F5F5F5',
+    surface: '#FFFFFF',
+    text: '#333333',
+    placeholder: '#999999',
+    disabled: '#CCCCCC',
     backdrop: 'rgba(0, 0, 0, 0.5)',
-    notification: '#f50057',
-    // These are the properties that Dialog might be looking for
-    surfaceVariant: '#e0e0e0',
-    onSurfaceVariant: '#000000',
-    outline: '#737373',
+    notification: '#FF5722',
+    error: '#F44336',
+    success: '#4CAF50',
+    warning: '#FF9800',
+    info: '#2196F3',
+  },
+  roundness: 8,
+  fonts: {
+    ...DefaultTheme.fonts,
+    regular: {
+      fontFamily: 'System',
+      fontWeight: '400',
+    },
+    medium: {
+      fontFamily: 'System',
+      fontWeight: '500',
+    },
+    light: {
+      fontFamily: 'System',
+      fontWeight: '300',
+    },
+    thin: {
+      fontFamily: 'System',
+      fontWeight: '100',
+    },
   },
 };
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <PaperProvider theme={theme}>
+    <PaperProvider theme={theme}>
+      <NavigationContainer>
         <AuthProvider>
-          <AppNavigator />
+          <LocationProvider>
+            <StatusBar style="dark" backgroundColor="#6C63FF" />
+            <AppNavigator />
+          </LocationProvider>
         </AuthProvider>
-      </PaperProvider>
-    </SafeAreaProvider>
+      </NavigationContainer>
+    </PaperProvider>
   );
 }

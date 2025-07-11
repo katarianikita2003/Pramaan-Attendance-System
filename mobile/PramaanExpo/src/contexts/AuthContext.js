@@ -1,4 +1,4 @@
-// mobile/PramaanExpo/src/contexts/AuthContext.js - FIXED VERSION
+// mobile/PramaanExpo/src/contexts/AuthContext.js
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authService } from '../services/api';

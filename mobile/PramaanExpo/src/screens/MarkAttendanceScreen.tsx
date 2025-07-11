@@ -26,7 +26,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
 import biometricService from '../services/biometric.service';
-import zkpService from '../services/zkp.service';
+import zkpService from '../services/zkpService';
 import api from '../services/api';
 
 // Remove the import from App.tsx to avoid circular dependency

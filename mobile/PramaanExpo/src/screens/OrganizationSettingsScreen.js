@@ -1,16 +1,15 @@
-// 1. src/screens/VerifyProofScreen.js
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const VerifyProofScreen = ({ navigation }) => {
+const OrganizationSettingsScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Verify Proof</Text>
+        <Text style={styles.title}>Screen Title</Text>
         <Text style={styles.subtitle}>Coming Soon...</Text>
-        <Button mode="outlined" onPress={() => navigation.goBack()} style={styles.button}>
+        <Button mode="outlined" onPress={() => navigation.goBack()}>
           Go Back
         </Button>
       </View>
@@ -23,7 +22,6 @@ const styles = StyleSheet.create({
   content: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16 },
   subtitle: { fontSize: 16, color: '#666', marginBottom: 32 },
-  button: { marginTop: 20 },
 });
 
-export default VerifyProofScreen;
+export default OrganizationSettingsScreen;

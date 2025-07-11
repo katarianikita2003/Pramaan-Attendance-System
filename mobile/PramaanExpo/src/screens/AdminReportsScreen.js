@@ -1,14 +1,14 @@
-// 1. src/screens/VerifyProofScreen.js
+// 5. src/screens/AdminReportsScreen.js
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const VerifyProofScreen = ({ navigation }) => {
+const AdminReportsScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Verify Proof</Text>
+        <Text style={styles.title}>Reports</Text>
         <Text style={styles.subtitle}>Coming Soon...</Text>
         <Button mode="outlined" onPress={() => navigation.goBack()} style={styles.button}>
           Go Back
@@ -26,4 +26,4 @@ const styles = StyleSheet.create({
   button: { marginTop: 20 },
 });
 
-export default VerifyProofScreen;
+export default AdminReportsScreen;
