@@ -1,4 +1,4 @@
-// mobile/PramaanExpo/src/screens/ProfileScreen.js
+// mobile/PramaanExpo/src/screens/ProfileScreen.js - CLEANED VERSION
 import React from 'react';
 import {
   View,
@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 
-export const ProfileScreen = ({ navigation }) => {
+const ProfileScreen = ({ navigation }) => {
   const { user, userType, logout } = useAuth();
 
   const handleLogout = async () => {
@@ -65,102 +65,6 @@ export const ProfileScreen = ({ navigation }) => {
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
-  );
-};
-
-// mobile/PramaanExpo/src/screens/SettingsScreen.js
-export const SettingsScreen = ({ navigation }) => {
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <ScrollView>
-        <Card style={styles.settingsCard}>
-          <List.Section>
-            <List.Subheader>Organization Settings</List.Subheader>
-            <List.Item
-              title="Campus Boundaries"
-              description="Set geofencing boundaries"
-              left={(props) => <List.Icon {...props} icon="map-marker" />}
-              onPress={() => {}}
-            />
-            <Divider />
-            <List.Item
-              title="Working Hours"
-              description="Configure attendance timings"
-              left={(props) => <List.Icon {...props} icon="clock" />}
-              onPress={() => {}}
-            />
-          </List.Section>
-        </Card>
-      </ScrollView>
-    </SafeAreaView>
-  );
-};
-
-// mobile/PramaanExpo/src/screens/ReportsScreen.js
-export const ReportsScreen = ({ navigation }) => {
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Reports</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <View style={styles.centerContent}>
-        <Icon name="insert-chart" size={64} color="#E0E0E0" />
-        <Text style={styles.emptyText}>Reports coming soon</Text>
-      </View>
-    </SafeAreaView>
-  );
-};
-
-// mobile/PramaanExpo/src/screens/VerifyProofScreen.js
-export const VerifyProofScreen = ({ navigation }) => {
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Verify Proof</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <View style={styles.centerContent}>
-        <Icon name="qr-code-scanner" size={64} color="#E0E0E0" />
-        <Text style={styles.emptyText}>Proof verification coming soon</Text>
-      </View>
-    </SafeAreaView>
-  );
-};
-
-// mobile/PramaanExpo/src/screens/DownloadReportScreen.js
-export const DownloadReportScreen = ({ navigation }) => {
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Download Report</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <View style={styles.centerContent}>
-        <Icon name="download" size={64} color="#E0E0E0" />
-        <Text style={styles.emptyText}>Report download coming soon</Text>
-      </View>
     </SafeAreaView>
   );
 };
@@ -233,21 +137,7 @@ const styles = StyleSheet.create({
     color: '#FF5252',
     fontWeight: '600',
   },
-  settingsCard: {
-    margin: 16,
-    elevation: 2,
-  },
-  centerContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#999',
-  },
 });
 
-// Export default screens
+// Export only the main ProfileScreen component
 export default ProfileScreen;

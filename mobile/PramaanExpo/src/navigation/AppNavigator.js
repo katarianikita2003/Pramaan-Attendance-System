@@ -1,26 +1,76 @@
-// mobile/PramaanExpo/src/navigation/AppNavigator.js
+// mobile/PramaanExpo/src/navigation/AppNavigator.js - FINAL WORKING VERSION
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Text } from 'react-native';
 
-// Import screens
+// Import ONLY screens that actually exist
 import LoginScreen from '../screens/LoginScreen';
 import RegisterOrganizationScreen from '../screens/RegisterOrganizationScreen';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import ScholarDashboardScreen from '../screens/ScholarDashboardScreen';
 import AddScholarScreen from '../screens/AddScholarScreen';
-import AttendanceScreen from '../screens/AttendanceScreen';
-import AttendanceHistoryScreen from '../screens/AttendanceHistoryScreen';
 
-// Import multiple screens from ProfileScreen file
-import ProfileScreen, { 
-  ReportsScreen, 
-  SettingsScreen, 
-  VerifyProofScreen, 
-  DownloadReportScreen 
-} from '../screens/ProfileScreen';
+// Import individual screen files that exist
+import ProfileScreen from '../screens/ProfileScreen';  // Default export only
+import SettingsScreen from '../screens/SettingsScreen';  // Standalone file
+
+// Create simple placeholder screens for missing files
+const AttendanceScreen = ({ navigation }) => {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+      <Text style={{ fontSize: 18, marginBottom: 20 }}>Mark Attendance</Text>
+      <Text style={{ textAlign: 'center', color: '#666' }}>
+        Attendance marking screen will be available soon.
+      </Text>
+    </View>
+  );
+};
+
+const AttendanceHistoryScreen = ({ navigation }) => {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+      <Text style={{ fontSize: 18, marginBottom: 20 }}>Attendance History</Text>
+      <Text style={{ textAlign: 'center', color: '#666' }}>
+        Attendance history screen will be available soon.
+      </Text>
+    </View>
+  );
+};
+
+const ReportsScreen = ({ navigation }) => {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+      <Text style={{ fontSize: 18, marginBottom: 20 }}>Reports</Text>
+      <Text style={{ textAlign: 'center', color: '#666' }}>
+        Reports screen will be available soon.
+      </Text>
+    </View>
+  );
+};
+
+const VerifyProofScreen = ({ navigation }) => {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+      <Text style={{ fontSize: 18, marginBottom: 20 }}>Verify Proof</Text>
+      <Text style={{ textAlign: 'center', color: '#666' }}>
+        Proof verification screen will be available soon.
+      </Text>
+    </View>
+  );
+};
+
+const DownloadReportScreen = ({ navigation }) => {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+      <Text style={{ fontSize: 18, marginBottom: 20 }}>Download Report</Text>
+      <Text style={{ textAlign: 'center', color: '#666' }}>
+        Report download screen will be available soon.
+      </Text>
+    </View>
+  );
+};
 
 const Stack = createNativeStackNavigator();
 
