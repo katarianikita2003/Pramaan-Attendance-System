@@ -30,9 +30,9 @@ router.post('/register',
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           success: false,
-          errors: errors.array() 
+          errors: errors.array()
         });
       }
 
@@ -59,9 +59,9 @@ router.post('/register',
       });
 
       if (existingScholar) {
-        return res.status(409).json({ 
+        return res.status(409).json({
           success: false,
-          error: 'Scholar with this ID or email already exists' 
+          error: 'Scholar with this ID or email already exists'
         });
       }
 
@@ -72,9 +72,9 @@ router.post('/register',
             biometrics.faceCommitment.commitment
           );
           if (faceExists) {
-            return res.status(409).json({ 
+            return res.status(409).json({
               success: false,
-              error: 'Face biometric already registered' 
+              error: 'Face biometric already registered'
             });
           }
         }
@@ -84,9 +84,9 @@ router.post('/register',
             biometrics.fingerprintCommitment.commitment
           );
           if (fingerprintExists) {
-            return res.status(409).json({ 
+            return res.status(409).json({
               success: false,
-              error: 'Fingerprint biometric already registered' 
+              error: 'Fingerprint biometric already registered'
             });
           }
         }
@@ -150,7 +150,7 @@ router.post('/register',
 
     } catch (error) {
       logger.error('Scholar registration error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
         error: 'Failed to register scholar',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -172,9 +172,9 @@ router.get('/profile',
         .populate('organizationId', 'name code type');
 
       if (!scholar) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           success: false,
-          error: 'Scholar not found' 
+          error: 'Scholar not found'
         });
       }
 
@@ -184,9 +184,9 @@ router.get('/profile',
       });
     } catch (error) {
       logger.error('Get scholar profile error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to get profile' 
+        error: 'Failed to get profile'
       });
     }
   }
@@ -205,7 +205,7 @@ router.put('/profile',
   async (req, res) => {
     try {
       const updates = req.body;
-      
+
       // Prevent updating sensitive fields
       delete updates.scholarId;
       delete updates.credentials;
@@ -225,9 +225,9 @@ router.put('/profile',
       });
     } catch (error) {
       logger.error('Update scholar profile error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to update profile' 
+        error: 'Failed to update profile'
       });
     }
   }
@@ -250,9 +250,9 @@ router.get('/stats',
       });
     } catch (error) {
       logger.error('Get scholar stats error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to get statistics' 
+        error: 'Failed to get statistics'
       });
     }
   }
@@ -267,7 +267,7 @@ router.get('/attendance/history',
   async (req, res) => {
     try {
       const { page = 1, limit = 20, month, year } = req.query;
-      
+
       // This would typically fetch from an Attendance collection
       // For now, returning mock data
       res.json({
@@ -282,9 +282,9 @@ router.get('/attendance/history',
       });
     } catch (error) {
       logger.error('Get attendance history error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to get attendance history' 
+        error: 'Failed to get attendance history'
       });
     }
   }
@@ -305,13 +305,13 @@ router.post('/change-password',
       const { currentPassword, newPassword } = req.body;
 
       const scholar = await Scholar.findById(req.user.id);
-      
+
       // Verify current password
       const isMatch = await bcrypt.compare(currentPassword, scholar.credentials.passwordHash);
       if (!isMatch) {
-        return res.status(401).json({ 
+        return res.status(401).json({
           success: false,
-          error: 'Current password is incorrect' 
+          error: 'Current password is incorrect'
         });
       }
 
@@ -330,9 +330,107 @@ router.post('/change-password',
       });
     } catch (error) {
       logger.error('Change password error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to change password' 
+        error: 'Failed to change password'
+      });
+    }
+  }
+);
+
+// Add this route to backend/src/routes/scholar.routes.js
+
+// @route   POST /api/scholar/self-register
+// @desc    Scholar self-registration with organization code
+// @access  Public
+router.post('/self-register',
+  [
+    body('organizationCode').notEmpty().trim().toUpperCase(),
+    body('personalInfo.name').notEmpty().trim(),
+    body('personalInfo.email').isEmail().normalizeEmail(),
+    body('personalInfo.phone').isMobilePhone(),
+    body('personalInfo.scholarId').notEmpty().trim(),
+    body('password').isLength({ min: 8 }),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array()
+        });
+      }
+
+      const {
+        organizationCode,
+        personalInfo,
+        academicInfo,
+        password,
+        biometrics
+      } = req.body;
+
+      // Find organization by code
+      const organization = await Organization.findOne({ code: organizationCode });
+      if (!organization) {
+        return res.status(404).json({
+          success: false,
+          error: 'Invalid organization code'
+        });
+      }
+
+      // Check if scholar already exists
+      const existingScholar = await Scholar.findOne({
+        $or: [
+          { scholarId: personalInfo.scholarId },
+          { 'personalInfo.email': personalInfo.email }
+        ]
+      });
+
+      if (existingScholar) {
+        return res.status(409).json({
+          success: false,
+          error: 'Scholar with this ID or email already exists'
+        });
+      }
+
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+
+      // Create new scholar
+      const newScholar = new Scholar({
+        scholarId: personalInfo.scholarId.toUpperCase(),
+        personalInfo,
+        academicInfo: academicInfo || {},
+        organizationId: organization._id,
+        credentials: {
+          passwordHash: hashedPassword
+        },
+        biometrics: biometrics || {},
+        status: 'pending_approval' // Requires admin approval
+      });
+
+      await newScholar.save();
+
+      res.status(201).json({
+        success: true,
+        message: 'Registration successful. Awaiting admin approval.',
+        scholar: {
+          id: newScholar._id,
+          scholarId: newScholar.scholarId,
+          name: newScholar.personalInfo.name,
+          email: newScholar.personalInfo.email,
+          status: newScholar.status
+        }
+      });
+
+    } catch (error) {
+      logger.error('Scholar self-registration error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Registration failed',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }

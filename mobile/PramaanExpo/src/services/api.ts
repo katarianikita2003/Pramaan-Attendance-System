@@ -72,6 +72,8 @@ api.interceptors.request.use(
           console.log('Data Type:', typeof config.data);
           if (typeof config.data === 'string') {
             console.log('String Data:', config.data.substring(0, 100) + '...');
+          } else if (config.data instanceof FormData) {
+            console.log('FormData:', 'FormData object');
           } else {
             console.log('Object Data:', config.data);
           }
@@ -327,7 +329,7 @@ export const authService = {
   },
 };
 
-// Admin services
+// Admin services - COMPLETE VERSION
 export const adminService = {
   async getDashboard(): Promise<any> {
     try {
@@ -336,6 +338,29 @@ export const adminService = {
     } catch (error) {
       console.error('Get dashboard error:', error);
       throw error;
+    }
+  },
+
+  async getDashboardData(): Promise<any> {
+    // Alias for getDashboard for backward compatibility
+    return this.getDashboard();
+  },
+
+  async getAnalytics(): Promise<any> {
+    try {
+      const response = await api.get(API_ENDPOINTS.ADMIN_ANALYTICS);
+      return response.data;
+    } catch (error) {
+      console.error('Get analytics error:', error);
+      // Return default data if endpoint is not available
+      return {
+        success: true,
+        analytics: {
+          monthlyAttendance: [],
+          departmentWise: [],
+          trends: []
+        }
+      };
     }
   },
 
@@ -353,10 +378,102 @@ export const adminService = {
 
   async addScholar(scholarData: any): Promise<any> {
     try {
-      const response = await api.post(API_ENDPOINTS.SCHOLAR_REGISTER, scholarData);
+      // Get current user data for organizationId
+      const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+      const user = userData ? JSON.parse(userData) : null;
+      
+      const requestData = {
+        ...scholarData,
+        organizationId: scholarData.organizationId || user?.organizationId
+      };
+
+      const response = await api.post(API_ENDPOINTS.SCHOLAR_REGISTER, requestData);
       return response.data;
     } catch (error) {
       console.error('Add scholar error:', error);
+      throw error;
+    }
+  },
+
+  async registerScholar(scholarData: any): Promise<any> {
+    try {
+      // Get current user data for organizationId
+      const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+      const user = userData ? JSON.parse(userData) : null;
+      
+      // If profile image is a local URI, prepare for upload
+      if (scholarData.personalInfo.profileImage && 
+          scholarData.personalInfo.profileImage.startsWith('file://')) {
+        
+        // Create FormData for file upload
+        const formData = new FormData();
+        
+        // Add profile image
+        const photoUri = scholarData.personalInfo.profileImage;
+        const photoName = photoUri.split('/').pop();
+        const photoType = `image/${photoName.split('.').pop()}`;
+        
+        formData.append('profileImage', {
+          uri: photoUri,
+          name: photoName,
+          type: photoType,
+        } as any);
+        
+        // Add other data as JSON strings
+        formData.append('scholarId', scholarData.scholarId);
+        formData.append('password', scholarData.password);
+        formData.append('organizationId', scholarData.organizationId || user?.organizationId);
+        formData.append('personalInfo', JSON.stringify({
+          name: scholarData.personalInfo.name,
+          email: scholarData.personalInfo.email,
+          phone: scholarData.personalInfo.phone,
+        }));
+        formData.append('academicInfo', JSON.stringify(scholarData.academicInfo));
+        
+        if (scholarData.biometrics) {
+          formData.append('biometrics', JSON.stringify(scholarData.biometrics));
+        }
+        
+        const response = await api.post(API_ENDPOINTS.SCHOLAR_REGISTER, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          transformRequest: (data) => data, // Prevent axios from stringifying FormData
+        });
+        
+        return response.data;
+      } else {
+        // No file upload, send as JSON
+        const requestData = {
+          ...scholarData,
+          organizationId: scholarData.organizationId || user?.organizationId
+        };
+        
+        const response = await api.post(API_ENDPOINTS.SCHOLAR_REGISTER, requestData);
+        return response.data;
+      }
+    } catch (error) {
+      console.error('Register scholar error:', error);
+      throw error;
+    }
+  },
+
+  async updateScholar(scholarId: string, updateData: any): Promise<any> {
+    try {
+      const response = await api.put(`${API_ENDPOINTS.ADMIN_SCHOLARS}/${scholarId}`, updateData);
+      return response.data;
+    } catch (error) {
+      console.error('Update scholar error:', error);
+      throw error;
+    }
+  },
+
+  async deleteScholar(scholarId: string): Promise<any> {
+    try {
+      const response = await api.delete(`${API_ENDPOINTS.ADMIN_SCHOLARS}/${scholarId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Delete scholar error:', error);
       throw error;
     }
   },
@@ -367,11 +484,36 @@ export const adminService = {
         params: dateRange ? {
           startDate: dateRange.start.toISOString(),
           endDate: dateRange.end.toISOString()
-        } : {}
+        } : undefined
       });
       return response.data;
     } catch (error) {
       console.error('Get reports error:', error);
+      throw error;
+    }
+  },
+
+  async getAttendanceReport(filters?: any): Promise<any> {
+    try {
+      const response = await api.get(`${API_ENDPOINTS.ADMIN_REPORTS}/attendance`, {
+        params: filters
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Get attendance report error:', error);
+      throw error;
+    }
+  },
+
+  async exportReport(type: string, format: 'pdf' | 'csv', filters?: any): Promise<any> {
+    try {
+      const response = await api.get(`${API_ENDPOINTS.ADMIN_REPORTS}/export`, {
+        params: { type, format, ...filters },
+        responseType: 'blob'
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Export report error:', error);
       throw error;
     }
   },
@@ -386,22 +528,43 @@ export const adminService = {
     }
   },
 
-  async getProfile(): Promise<any> {
+  async searchScholars(query: string): Promise<any> {
     try {
-      const response = await api.get('/admin/profile');
+      const response = await api.get(`${API_ENDPOINTS.ADMIN_SCHOLARS}/search`, {
+        params: { q: query }
+      });
       return response.data;
     } catch (error) {
-      console.error('Get profile error:', error);
+      console.error('Search scholars error:', error);
       throw error;
     }
   },
 
-  async updateProfile(data: any): Promise<any> {
+  async getBulkUploadTemplate(): Promise<any> {
     try {
-      const response = await api.put('/admin/profile', data);
+      const response = await api.get(`${API_ENDPOINTS.ADMIN_SCHOLARS}/template`, {
+        responseType: 'blob'
+      });
       return response.data;
     } catch (error) {
-      console.error('Update profile error:', error);
+      console.error('Get template error:', error);
+      throw error;
+    }
+  },
+
+  async bulkUploadScholars(file: any): Promise<any> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await api.post(`${API_ENDPOINTS.ADMIN_SCHOLARS}/bulk`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Bulk upload error:', error);
       throw error;
     }
   },
@@ -409,11 +572,56 @@ export const adminService = {
 
 // Scholar services
 export const scholarService = {
+  async register(scholarData: any): Promise<any> {
+    try {
+      const response = await api.post('/scholar/self-register', scholarData);
+      return response.data;
+    } catch (error) {
+      console.error('Scholar registration error:', error);
+      throw error;
+    }
+  },
+
+  async login(email: string, password: string, organizationCode: string): Promise<any> {
+    try {
+      const response = await api.post(API_ENDPOINTS.SCHOLAR_LOGIN, {
+        email,
+        password,
+        organizationCode
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Scholar login error:', error);
+      throw error;
+    }
+  },
+
   async getProfile(): Promise<any> {
     try {
       const response = await api.get(API_ENDPOINTS.SCHOLAR_PROFILE);
       return response.data;
     } catch (error) {
+      console.error('Get profile error:', error);
+      throw error;
+    }
+  },
+
+  async updateProfile(profileData: any): Promise<any> {
+    try {
+      const response = await api.put(API_ENDPOINTS.SCHOLAR_PROFILE, profileData);
+      return response.data;
+    } catch (error) {
+      console.error('Update profile error:', error);
+      throw error;
+    }
+  },
+
+  async changePassword(passwordData: { currentPassword: string; newPassword: string }): Promise<any> {
+    try {
+      const response = await api.post(`${API_ENDPOINTS.SCHOLAR_PROFILE}/change-password`, passwordData);
+      return response.data;
+    } catch (error) {
+      console.error('Change password error:', error);
       throw error;
     }
   },
@@ -423,37 +631,19 @@ export const scholarService = {
       const response = await api.get(API_ENDPOINTS.SCHOLAR_STATS);
       return response.data;
     } catch (error) {
+      console.error('Get scholar stats error:', error);
       throw error;
     }
   },
 
-  async getAttendanceHistory(page = 1, limit = 20): Promise<any> {
+  async getAttendanceHistory(filters?: any): Promise<any> {
     try {
       const response = await api.get(API_ENDPOINTS.SCHOLAR_ATTENDANCE_HISTORY, {
-        params: { page, limit }
+        params: filters
       });
       return response.data;
     } catch (error) {
-      throw error;
-    }
-  },
-
-  async markAttendance(data: any): Promise<any> {
-    try {
-      const response = await api.post(API_ENDPOINTS.MARK_ATTENDANCE, data);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  },
-
-  async generateCertificate(attendanceId: string): Promise<any> {
-    try {
-      const response = await api.post(API_ENDPOINTS.GENERATE_CERTIFICATE, { 
-        attendanceId 
-      });
-      return response.data;
-    } catch (error) {
+      console.error('Get attendance history error:', error);
       throw error;
     }
   },
@@ -505,10 +695,29 @@ export const organizationService = {
       throw error;
     }
   },
+
+  async getOrganizationByCode(code: string): Promise<any> {
+    try {
+      const response = await api.get(`${API_ENDPOINTS.ORGANIZATION_DETAILS}/code/${code}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 };
 
 // Attendance services
 export const attendanceService = {
+  async markAttendance(attendanceData: any): Promise<any> {
+    try {
+      const response = await api.post(API_ENDPOINTS.MARK_ATTENDANCE, attendanceData);
+      return response.data;
+    } catch (error) {
+      console.error('Mark attendance error:', error);
+      throw error;
+    }
+  },
+
   async verifyProof(proofData: string): Promise<any> {
     try {
       const response = await api.post(API_ENDPOINTS.VERIFY_PROOF, { 
@@ -538,6 +747,30 @@ export const attendanceService = {
       });
       return response.data;
     } catch (error) {
+      throw error;
+    }
+  },
+
+  async generateCertificate(attendanceId: string): Promise<any> {
+    try {
+      const response = await api.post(API_ENDPOINTS.GENERATE_CERTIFICATE, {
+        attendanceId
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Generate certificate error:', error);
+      throw error;
+    }
+  },
+
+  async getMonthlyReport(month: number, year: number): Promise<any> {
+    try {
+      const response = await api.get(`${API_ENDPOINTS.ATTENDANCE_HISTORY}/monthly`, {
+        params: { month, year }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Get monthly report error:', error);
       throw error;
     }
   },

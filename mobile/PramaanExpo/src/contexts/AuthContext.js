@@ -33,9 +33,25 @@ export const AuthProvider = ({ children }) => {
         AsyncStorage.getItem('userType'),
       ]);
 
+      console.log('Checking auth status:', {
+        hasToken: !!token,
+        hasUserData: !!userData,
+        userType: savedUserType
+      });
+
       if (token && userData) {
-        setUser(JSON.parse(userData));
-        setUserType(savedUserType);
+        try {
+          const parsedUser = JSON.parse(userData);
+          setUser(parsedUser);
+          setUserType(savedUserType);
+          console.log('User authenticated from storage');
+        } catch (parseError) {
+          console.error('Error parsing user data:', parseError);
+          // Clear corrupted data
+          await AsyncStorage.multiRemove(['authToken', 'userData', 'userType']);
+        }
+      } else {
+        console.log('User is not authenticated');
       }
     } catch (error) {
       console.error('Error checking auth status:', error);
@@ -49,55 +65,76 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       setError(null);
 
-      console.log('AuthContext: Starting login for type:', type);
-      console.log('AuthContext: Parameters:', {
-        email: email,
+      console.log('Login attempt:', {
+        email,
         passwordLength: password?.length,
-        organizationCode: organizationCode,
-        type: type
+        userType: type,
+        hasOrgCode: organizationCode ? 'Yes' : 'N/A'
       });
 
       let response;
+      
       if (type === 'admin') {
-        console.log('AuthContext: Calling adminLogin');
         response = await authService.adminLogin(email, password);
       } else if (type === 'scholar') {
-        console.log('AuthContext: Calling scholarLogin');
+        if (!organizationCode) {
+          throw new Error('Organization code is required for scholar login');
+        }
         response = await authService.scholarLogin(email, password, organizationCode);
       } else {
-        console.error('AuthContext: Invalid user type:', type);
         throw new Error('Invalid user type');
       }
 
-      console.log('AuthContext: Login response:', response);
+      console.log('Login response:', response);
 
-      if (response && (response.success || response.token)) {
-        // Store auth data
+      if (response && response.success) {
+        // Extract user data from response
+        const userData = response.user || response.admin || response.scholar;
+        
+        if (!userData) {
+          throw new Error('No user data in response');
+        }
+
+        // Ensure userType is set properly
+        const finalUserType = userData.userType || userData.role || type;
+        userData.userType = finalUserType;
+
+        console.log('Login successful, user type:', finalUserType);
+
+        // Store auth data - only store defined values
+        const storagePromises = [];
+        
         if (response.token) {
-          await AsyncStorage.setItem('authToken', response.token);
+          storagePromises.push(AsyncStorage.setItem('authToken', response.token));
         }
         
-        const userData = response.user || response.admin || response.scholar;
-        if (userData) {
-          await AsyncStorage.setItem('userData', JSON.stringify(userData));
-          await AsyncStorage.setItem('userType', userData.userType || type);
-          
-          setUser(userData);
-          setUserType(userData.userType || type);
+        storagePromises.push(AsyncStorage.setItem('userData', JSON.stringify(userData)));
+        storagePromises.push(AsyncStorage.setItem('userType', finalUserType));
+        
+        if (organizationCode) {
+          storagePromises.push(AsyncStorage.setItem('organizationCode', organizationCode));
+        } else if (response.organization?.code) {
+          storagePromises.push(AsyncStorage.setItem('organizationCode', response.organization.code));
         }
 
-        console.log('AuthContext: Auth data saved, updating state');
-        console.log('AuthContext: Login successful, isAuthenticated:', !!userData);
+        await Promise.all(storagePromises);
 
+        // Update state
+        setUser(userData);
+        setUserType(finalUserType);
+        
+        console.log('User data stored:', userData);
+        console.log('Login successful');
+        
         return { success: true };
       } else {
         const errorMsg = response?.error || response?.message || 'Login failed';
-        console.log('AuthContext: Login failed:', errorMsg);
+        console.error('Login failed:', errorMsg);
         setError(errorMsg);
         return { success: false, error: errorMsg };
       }
     } catch (error) {
-      console.error('AuthContext: Login error:', error);
+      console.error('Login error:', error);
       const errorMessage = error.response?.data?.error || error.message || 'Login failed. Please try again.';
       setError(errorMessage);
       return { success: false, error: errorMessage };
@@ -123,7 +160,7 @@ export const AuthProvider = ({ children }) => {
       setUserType(null);
       setError(null);
       
-      console.log('AuthContext: Logout successful');
+      console.log('Logout successful');
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
@@ -131,9 +168,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const updateUser = (userData) => {
-    setUser(userData);
-    AsyncStorage.setItem('userData', JSON.stringify(userData));
+  const updateUser = async (userData) => {
+    try {
+      if (!userData) {
+        console.error('Cannot update user with null/undefined data');
+        return;
+      }
+      
+      setUser(userData);
+      await AsyncStorage.setItem('userData', JSON.stringify(userData));
+      console.log('User data updated');
+    } catch (error) {
+      console.error('Error updating user:', error);
+    }
   };
 
   const value = {

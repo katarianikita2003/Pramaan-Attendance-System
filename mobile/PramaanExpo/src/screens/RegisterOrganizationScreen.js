@@ -5,28 +5,25 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import {
   TextInput,
   Button,
-  Card,
   RadioButton,
+  Card,
+  Checkbox,
   HelperText,
-  ProgressBar,
-  Avatar,
-  Divider,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 
 const RegisterOrganizationScreen = ({ navigation }) => {
-  const { register } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const { register, login } = useAuth();
   const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
   
   // Organization data
   const [orgData, setOrgData] = useState({
@@ -48,6 +45,14 @@ const RegisterOrganizationScreen = ({ navigation }) => {
     confirmPassword: '',
   });
 
+  // Boundaries data
+  const [boundaries, setBoundaries] = useState({
+    enableGeofencing: false,
+    campusRadius: '500',
+    centerLatitude: '',
+    centerLongitude: '',
+  });
+
   const [errors, setErrors] = useState({});
 
   const validateEmail = (email) => {
@@ -57,21 +62,34 @@ const RegisterOrganizationScreen = ({ navigation }) => {
   const validateStep1 = () => {
     const newErrors = {};
     
-    if (!orgData.organizationName) newErrors.organizationName = 'Organization name is required';
-    if (!orgData.address) newErrors.address = 'Address is required';
-    if (!orgData.city) newErrors.city = 'City is required';
-    if (!orgData.state) newErrors.state = 'State is required';
-    if (!orgData.pincode) newErrors.pincode = 'Pincode is required';
-    if (!orgData.contactNumber) newErrors.contactNumber = 'Contact number is required';
-    
-    if (orgData.pincode && !/^\d{6}$/.test(orgData.pincode)) {
-      newErrors.pincode = 'Pincode must be 6 digits';
+    if (!orgData.organizationName) {
+      newErrors.organizationName = 'Organization name is required';
     }
     
-    if (orgData.contactNumber && !/^\d{10}$/.test(orgData.contactNumber)) {
-      newErrors.contactNumber = 'Contact number must be 10 digits';
+    if (!orgData.address) {
+      newErrors.address = 'Address is required';
     }
-
+    
+    if (!orgData.city) {
+      newErrors.city = 'City is required';
+    }
+    
+    if (!orgData.state) {
+      newErrors.state = 'State is required';
+    }
+    
+    if (!orgData.pincode) {
+      newErrors.pincode = 'Pincode is required';
+    } else if (!/^\d{6}$/.test(orgData.pincode)) {
+      newErrors.pincode = 'Invalid pincode';
+    }
+    
+    if (!orgData.contactNumber) {
+      newErrors.contactNumber = 'Contact number is required';
+    } else if (!/^\d{10}$/.test(orgData.contactNumber)) {
+      newErrors.contactNumber = 'Invalid contact number';
+    }
+    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -79,16 +97,19 @@ const RegisterOrganizationScreen = ({ navigation }) => {
   const validateStep2 = () => {
     const newErrors = {};
     
-    if (!adminData.adminName) newErrors.adminName = 'Admin name is required';
-    if (!adminData.adminEmail) newErrors.adminEmail = 'Admin email is required';
-    if (!adminData.adminPhone) newErrors.adminPhone = 'Admin phone is required';
-    if (!adminData.adminPassword) newErrors.adminPassword = 'Password is required';
-    
-    if (adminData.adminEmail && !validateEmail(adminData.adminEmail)) {
-      newErrors.adminEmail = 'Please enter a valid email';
+    if (!adminData.adminName) {
+      newErrors.adminName = 'Name is required';
     }
     
-    if (adminData.adminPassword && adminData.adminPassword.length < 8) {
+    if (!adminData.adminEmail) {
+      newErrors.adminEmail = 'Email is required';
+    } else if (!validateEmail(adminData.adminEmail)) {
+      newErrors.adminEmail = 'Invalid email format';
+    }
+    
+    if (!adminData.adminPassword) {
+      newErrors.adminPassword = 'Password is required';
+    } else if (adminData.adminPassword.length < 8) {
       newErrors.adminPassword = 'Password must be at least 8 characters';
     }
     
@@ -96,10 +117,6 @@ const RegisterOrganizationScreen = ({ navigation }) => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
     
-    if (adminData.adminPhone && !/^\d{10}$/.test(adminData.adminPhone)) {
-      newErrors.adminPhone = 'Phone number must be 10 digits';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -107,35 +124,87 @@ const RegisterOrganizationScreen = ({ navigation }) => {
   const handleNext = () => {
     if (step === 1 && validateStep1()) {
       setStep(2);
+      setErrors({});
     } else if (step === 2 && validateStep2()) {
       setStep(3);
+      setErrors({});
     }
   };
 
-  const handlePrevious = () => {
-    if (step > 1) {
-      setStep(step - 1);
-    }
+  const handleBack = () => {
+    setStep(step - 1);
+    setErrors({});
   };
 
-  const handleSubmit = async () => {
+  const handleRegister = async () => {
     try {
       setLoading(true);
-      
-      const result = await register(orgData, adminData);
-      
-      if (result.success) {
+
+      const registrationData = {
+        organization: {
+          name: orgData.organizationName,
+          type: orgData.type,
+          address: `${orgData.address}, ${orgData.city}, ${orgData.state} - ${orgData.pincode}`,
+          city: orgData.city,
+          state: orgData.state,
+          contactNumber: orgData.contactNumber,
+        },
+        admin: {
+          name: adminData.adminName,
+          email: adminData.adminEmail,
+          password: adminData.adminPassword,
+          phone: adminData.adminPhone || orgData.contactNumber,
+        },
+        boundaries: boundaries.enableGeofencing ? {
+          enabled: true,
+          radius: parseInt(boundaries.campusRadius),
+          center: {
+            latitude: parseFloat(boundaries.centerLatitude),
+            longitude: parseFloat(boundaries.centerLongitude),
+          }
+        } : null,
+      };
+
+      console.log('Attempting to register organization:', registrationData);
+
+      const response = await register(registrationData);
+
+      if (response.success && response.data) {
         Alert.alert(
-          'Success!',
-          'Organization registered successfully! You can now login as admin.',
-          [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
+          'Registration Successful!',
+          `Your organization has been registered successfully.\n\nOrganization Code: ${response.data.organizationCode}\n\nPlease save this code. Your scholars will need it to register.\n\nYou can now login with your admin credentials.`,
+          [
+            {
+              text: 'Login Now',
+              onPress: async () => {
+                // Auto-login the admin
+                const loginResponse = await login(
+                  adminData.adminEmail,
+                  adminData.adminPassword,
+                  null,
+                  'admin'
+                );
+                
+                if (!loginResponse.success) {
+                  // If auto-login fails, navigate to login screen
+                  navigation.navigate('Login', { userType: 'admin' });
+                }
+              },
+            },
+          ]
         );
       } else {
-        Alert.alert('Registration Failed', result.error || 'Failed to register organization');
+        Alert.alert(
+          'Registration Failed',
+          response.error || 'Something went wrong. Please try again.'
+        );
       }
     } catch (error) {
       console.error('Registration error:', error);
-      Alert.alert('Registration Failed', 'Please check your details and try again');
+      Alert.alert(
+        'Registration Failed',
+        'Something went wrong. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
@@ -143,76 +212,78 @@ const RegisterOrganizationScreen = ({ navigation }) => {
 
   const renderStep1 = () => (
     <View>
-      <Text style={styles.stepTitle}>Organization Details</Text>
+      <Text style={styles.stepTitle}>Organization Information</Text>
       
       <TextInput
         label="Organization Name *"
         value={orgData.organizationName}
-        onChangeText={(text) => setOrgData({ ...orgData, organizationName: text })}
-        mode="outlined"
+        onChangeText={(text) => setOrgData({...orgData, organizationName: text})}
         style={styles.input}
+        mode="outlined"
         error={!!errors.organizationName}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
       <HelperText type="error" visible={!!errors.organizationName}>
         {errors.organizationName}
       </HelperText>
 
-      <View style={styles.radioGroup}>
+      <View style={styles.radioContainer}>
         <Text style={styles.radioLabel}>Organization Type:</Text>
         <RadioButton.Group
-          onValueChange={(value) => setOrgData({ ...orgData, type: value })}
+          onValueChange={(value) => setOrgData({...orgData, type: value})}
           value={orgData.type}
         >
-          <View style={styles.radioOption}>
-            <RadioButton value="educational" />
-            <Text style={styles.radioText}>Educational Institution</Text>
-          </View>
-          <View style={styles.radioOption}>
-            <RadioButton value="corporate" />
-            <Text style={styles.radioText}>Corporate Office</Text>
-          </View>
-          <View style={styles.radioOption}>
-            <RadioButton value="government" />
-            <Text style={styles.radioText}>Government Office</Text>
+          <View style={styles.radioRow}>
+            <RadioButton.Item label="Educational" value="educational" />
+            <RadioButton.Item label="Corporate" value="corporate" />
           </View>
         </RadioButton.Group>
       </View>
 
       <TextInput
-        label="Complete Address *"
+        label="Address *"
         value={orgData.address}
-        onChangeText={(text) => setOrgData({ ...orgData, address: text })}
-        mode="outlined"
+        onChangeText={(text) => setOrgData({...orgData, address: text})}
         style={styles.input}
+        mode="outlined"
         multiline
-        numberOfLines={3}
+        numberOfLines={2}
         error={!!errors.address}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
       <HelperText type="error" visible={!!errors.address}>
         {errors.address}
       </HelperText>
 
-      <View style={styles.rowInputs}>
-        <View style={styles.halfInput}>
+      <View style={styles.row}>
+        <View style={styles.halfInputContainer}>
           <TextInput
             label="City *"
             value={orgData.city}
-            onChangeText={(text) => setOrgData({ ...orgData, city: text })}
+            onChangeText={(text) => setOrgData({...orgData, city: text})}
+            style={styles.input}
             mode="outlined"
             error={!!errors.city}
+            outlineColor="#6C63FF"
+            activeOutlineColor="#6C63FF"
           />
           <HelperText type="error" visible={!!errors.city}>
             {errors.city}
           </HelperText>
         </View>
-        
-        <View style={styles.halfInput}>
+
+        <View style={styles.halfInputContainer}>
           <TextInput
             label="State *"
             value={orgData.state}
-            onChangeText={(text) => setOrgData({ ...orgData, state: text })}
+            onChangeText={(text) => setOrgData({...orgData, state: text})}
+            style={styles.input}
             mode="outlined"
             error={!!errors.state}
+            outlineColor="#6C63FF"
+            activeOutlineColor="#6C63FF"
           />
           <HelperText type="error" visible={!!errors.state}>
             {errors.state}
@@ -220,29 +291,37 @@ const RegisterOrganizationScreen = ({ navigation }) => {
         </View>
       </View>
 
-      <View style={styles.rowInputs}>
-        <View style={styles.halfInput}>
+      <View style={styles.row}>
+        <View style={styles.halfInputContainer}>
           <TextInput
             label="Pincode *"
             value={orgData.pincode}
-            onChangeText={(text) => setOrgData({ ...orgData, pincode: text })}
+            onChangeText={(text) => setOrgData({...orgData, pincode: text})}
+            style={styles.input}
             mode="outlined"
             keyboardType="numeric"
+            maxLength={6}
             error={!!errors.pincode}
+            outlineColor="#6C63FF"
+            activeOutlineColor="#6C63FF"
           />
           <HelperText type="error" visible={!!errors.pincode}>
             {errors.pincode}
           </HelperText>
         </View>
-        
-        <View style={styles.halfInput}>
+
+        <View style={styles.halfInputContainer}>
           <TextInput
             label="Contact Number *"
             value={orgData.contactNumber}
-            onChangeText={(text) => setOrgData({ ...orgData, contactNumber: text })}
+            onChangeText={(text) => setOrgData({...orgData, contactNumber: text})}
+            style={styles.input}
             mode="outlined"
             keyboardType="phone-pad"
+            maxLength={10}
             error={!!errors.contactNumber}
+            outlineColor="#6C63FF"
+            activeOutlineColor="#6C63FF"
           />
           <HelperText type="error" visible={!!errors.contactNumber}>
             {errors.contactNumber}
@@ -254,15 +333,17 @@ const RegisterOrganizationScreen = ({ navigation }) => {
 
   const renderStep2 = () => (
     <View>
-      <Text style={styles.stepTitle}>Admin Account Setup</Text>
+      <Text style={styles.stepTitle}>Admin Details</Text>
       
       <TextInput
-        label="Admin Full Name *"
+        label="Admin Name *"
         value={adminData.adminName}
-        onChangeText={(text) => setAdminData({ ...adminData, adminName: text })}
-        mode="outlined"
+        onChangeText={(text) => setAdminData({...adminData, adminName: text})}
         style={styles.input}
+        mode="outlined"
         error={!!errors.adminName}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
       <HelperText type="error" visible={!!errors.adminName}>
         {errors.adminName}
@@ -271,38 +352,41 @@ const RegisterOrganizationScreen = ({ navigation }) => {
       <TextInput
         label="Admin Email *"
         value={adminData.adminEmail}
-        onChangeText={(text) => setAdminData({ ...adminData, adminEmail: text })}
-        mode="outlined"
+        onChangeText={(text) => setAdminData({...adminData, adminEmail: text})}
         style={styles.input}
+        mode="outlined"
         keyboardType="email-address"
         autoCapitalize="none"
         error={!!errors.adminEmail}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
       <HelperText type="error" visible={!!errors.adminEmail}>
         {errors.adminEmail}
       </HelperText>
 
       <TextInput
-        label="Admin Phone *"
+        label="Admin Phone"
         value={adminData.adminPhone}
-        onChangeText={(text) => setAdminData({ ...adminData, adminPhone: text })}
-        mode="outlined"
+        onChangeText={(text) => setAdminData({...adminData, adminPhone: text})}
         style={styles.input}
+        mode="outlined"
         keyboardType="phone-pad"
-        error={!!errors.adminPhone}
+        placeholder="Optional - will use organization contact"
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
-      <HelperText type="error" visible={!!errors.adminPhone}>
-        {errors.adminPhone}
-      </HelperText>
 
       <TextInput
-        label="Admin Password *"
+        label="Password *"
         value={adminData.adminPassword}
-        onChangeText={(text) => setAdminData({ ...adminData, adminPassword: text })}
-        mode="outlined"
+        onChangeText={(text) => setAdminData({...adminData, adminPassword: text})}
         style={styles.input}
+        mode="outlined"
         secureTextEntry
         error={!!errors.adminPassword}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
       <HelperText type="error" visible={!!errors.adminPassword}>
         {errors.adminPassword}
@@ -311,11 +395,13 @@ const RegisterOrganizationScreen = ({ navigation }) => {
       <TextInput
         label="Confirm Password *"
         value={adminData.confirmPassword}
-        onChangeText={(text) => setAdminData({ ...adminData, confirmPassword: text })}
-        mode="outlined"
+        onChangeText={(text) => setAdminData({...adminData, confirmPassword: text})}
         style={styles.input}
+        mode="outlined"
         secureTextEntry
         error={!!errors.confirmPassword}
+        outlineColor="#6C63FF"
+        activeOutlineColor="#6C63FF"
       />
       <HelperText type="error" visible={!!errors.confirmPassword}>
         {errors.confirmPassword}
@@ -325,80 +411,57 @@ const RegisterOrganizationScreen = ({ navigation }) => {
 
   const renderStep3 = () => (
     <View>
-      <Text style={styles.stepTitle}>Review & Confirm</Text>
+      <Text style={styles.stepTitle}>Review & Register</Text>
       
-      <Card style={styles.reviewCard}>
+      <Card style={{ marginBottom: 20 }}>
         <Card.Content>
-          <Text style={styles.reviewTitle}>Organization Details</Text>
-          <Text style={styles.reviewItem}>Name: {orgData.organizationName}</Text>
-          <Text style={styles.reviewItem}>Type: {orgData.type}</Text>
-          <Text style={styles.reviewItem}>Address: {orgData.address}</Text>
-          <Text style={styles.reviewItem}>City: {orgData.city}, {orgData.state}</Text>
-          <Text style={styles.reviewItem}>Pincode: {orgData.pincode}</Text>
-          <Text style={styles.reviewItem}>Contact: {orgData.contactNumber}</Text>
+          <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>Organization Details</Text>
+          <Text>Name: {orgData.organizationName}</Text>
+          <Text>Type: {orgData.type}</Text>
+          <Text>Address: {orgData.address}, {orgData.city}, {orgData.state} - {orgData.pincode}</Text>
+          <Text>Contact: {orgData.contactNumber}</Text>
         </Card.Content>
       </Card>
 
-      <Card style={styles.reviewCard}>
+      <Card style={{ marginBottom: 20 }}>
         <Card.Content>
-          <Text style={styles.reviewTitle}>Admin Account</Text>
-          <Text style={styles.reviewItem}>Name: {adminData.adminName}</Text>
-          <Text style={styles.reviewItem}>Email: {adminData.adminEmail}</Text>
-          <Text style={styles.reviewItem}>Phone: {adminData.adminPhone}</Text>
+          <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>Admin Details</Text>
+          <Text>Name: {adminData.adminName}</Text>
+          <Text>Email: {adminData.adminEmail}</Text>
+          <Text>Phone: {adminData.adminPhone || orgData.contactNumber}</Text>
         </Card.Content>
       </Card>
 
-      <View style={styles.noteContainer}>
-        <Avatar.Icon size={32} icon="information" style={styles.infoIcon} />
-        <Text style={styles.noteText}>
-          A unique organization code will be generated after registration. 
-          This code will be required for scholar registration.
-        </Text>
-      </View>
+      <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 20 }}>
+        By registering, you agree to our terms of service and privacy policy.
+      </Text>
     </View>
   );
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Avatar.Icon size={40} icon="arrow-left" style={styles.backButton} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Register Organization</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Icon name="arrow-left" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Register Organization</Text>
+        <View style={{ width: 24 }} />
+      </View>
 
-        {/* Progress Bar */}
-        <View style={styles.progressContainer}>
-          <ProgressBar progress={step / 3} color="#6C63FF" style={styles.progressBar} />
-          <Text style={styles.stepIndicator}>Step {step} of 3</Text>
-        </View>
+      <ScrollView style={styles.content}>
+        {step === 1 && renderStep1()}
+        {step === 2 && renderStep2()}
+        {step === 3 && renderStep3()}
 
-        <ScrollView style={styles.content}>
-          <Card style={styles.formCard}>
-            <Card.Content>
-              {step === 1 && renderStep1()}
-              {step === 2 && renderStep2()}
-              {step === 3 && renderStep3()}
-            </Card.Content>
-          </Card>
-        </ScrollView>
-
-        {/* Navigation Buttons */}
-        <View style={styles.navigationButtons}>
+        <View style={styles.buttonContainer}>
           {step > 1 && (
             <Button
               mode="outlined"
-              onPress={handlePrevious}
-              style={styles.navButton}
-              disabled={loading}
+              onPress={handleBack}
+              style={[styles.button]}
+              contentStyle={styles.buttonContent}
             >
-              Previous
+              Back
             </Button>
           )}
           
@@ -406,23 +469,25 @@ const RegisterOrganizationScreen = ({ navigation }) => {
             <Button
               mode="contained"
               onPress={handleNext}
-              style={[styles.navButton, { flex: step === 1 ? 1 : 0.5 }]}
+              style={[styles.button, styles.primaryButton]}
+              contentStyle={styles.buttonContent}
             >
               Next
             </Button>
           ) : (
             <Button
               mode="contained"
-              onPress={handleSubmit}
-              style={[styles.navButton, { flex: 0.5 }]}
+              onPress={handleRegister}
+              style={[styles.button, styles.primaryButton]}
+              contentStyle={styles.buttonContent}
               loading={loading}
               disabled={loading}
             >
-              Register Organization
+              Register
             </Button>
           )}
         </View>
-      </KeyboardAvoidingView>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -430,10 +495,7 @@ const RegisterOrganizationScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  keyboardView: {
-    flex: 1,
+    backgroundColor: '#f5f5f5',
   },
   header: {
     flexDirection: 'row',
@@ -443,111 +505,60 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     elevation: 2,
   },
-  backButton: {
-    backgroundColor: '#6C63FF',
-  },
   headerTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2C3E50',
-  },
-  progressContainer: {
-    padding: 16,
-    backgroundColor: 'white',
-  },
-  progressBar: {
-    height: 4,
-    marginBottom: 8,
-  },
-  stepIndicator: {
-    textAlign: 'center',
-    fontSize: 14,
-    color: '#666',
+    fontWeight: '600',
+    color: '#333',
   },
   content: {
     flex: 1,
-    padding: 16,
-  },
-  formCard: {
-    elevation: 2,
+    padding: 20,
   },
   stepTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#2C3E50',
     marginBottom: 20,
-    textAlign: 'center',
+    color: '#333',
   },
   input: {
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  radioGroup: {
-    marginVertical: 16,
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  halfInputContainer: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  radioContainer: {
+    marginBottom: 16,
   },
   radioLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2C3E50',
     marginBottom: 8,
+    color: '#333',
   },
-  radioOption: {
+  radioRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
+    justifyContent: 'space-around',
   },
-  radioText: {
-    fontSize: 16,
-    color: '#2C3E50',
-    marginLeft: 8,
-  },
-  rowInputs: {
+  buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 30,
+    marginBottom: 20,
   },
-  halfInput: {
-    width: '48%',
-  },
-  reviewCard: {
-    marginBottom: 16,
-    elevation: 1,
-  },
-  reviewTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 12,
-    color: '#2C3E50',
-  },
-  reviewItem: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  noteContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#E3F2FD',
-    padding: 16,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  infoIcon: {
-    backgroundColor: '#2196F3',
-    marginRight: 12,
-  },
-  noteText: {
+  button: {
     flex: 1,
-    fontSize: 14,
-    color: '#1976D2',
-    lineHeight: 20,
+    marginHorizontal: 8,
   },
-  navigationButtons: {
-    flexDirection: 'row',
-    padding: 16,
-    backgroundColor: 'white',
-    elevation: 2,
+  primaryButton: {
+    backgroundColor: '#6C63FF',
   },
-  navButton: {
-    marginHorizontal: 4,
+  buttonContent: {
+    paddingVertical: 8,
   },
 });
 

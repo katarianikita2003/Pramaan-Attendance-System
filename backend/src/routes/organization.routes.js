@@ -40,7 +40,7 @@ router.post('/register',
       } = req.body;
 
       // Check if organization or admin already exists
-      const existingOrg = await Organization.findOne({ 
+      const existingOrg = await Organization.findOne({
         $or: [
           { name: organizationName },
           { 'contact.email': adminEmail }
@@ -48,8 +48,8 @@ router.post('/register',
       });
 
       if (existingOrg) {
-        return res.status(400).json({ 
-          error: 'Organization or email already registered' 
+        return res.status(400).json({
+          error: 'Organization or email already registered'
         });
       }
 
@@ -97,7 +97,7 @@ router.post('/register',
 
       // Generate JWT token
       const token = jwt.sign(
-        { 
+        {
           userId: admin._id,
           organizationId: organization._id,
           role: 'admin'
@@ -131,23 +131,23 @@ router.post('/register',
 );
 
 // Get organization details
-router.get('/details', 
+router.get('/details',
   authenticateToken,
   async (req, res) => {
     try {
       const organizationId = req.user.organizationId;
-      
+
       if (!organizationId) {
         return res.status(400).json({ error: 'Organization ID not found' });
       }
-      
+
       const organization = await Organization.findById(organizationId)
         .select('-__v -createdAt -updatedAt');
-      
+
       if (!organization) {
         return res.status(404).json({ error: 'Organization not found' });
       }
-      
+
       res.json({
         organization: {
           id: organization._id,
@@ -184,17 +184,17 @@ router.put('/details',
     try {
       const organizationId = req.user.organizationId;
       const updates = req.body;
-      
+
       const organization = await Organization.findByIdAndUpdate(
         organizationId,
         { $set: updates },
         { new: true, runValidators: true }
       );
-      
+
       if (!organization) {
         return res.status(404).json({ error: 'Organization not found' });
       }
-      
+
       res.json({
         message: 'Organization updated successfully',
         organization: {
@@ -219,27 +219,27 @@ router.get('/stats',
   async (req, res) => {
     try {
       const organizationId = req.user.organizationId;
-      
+
       const organization = await Organization.findById(organizationId);
       if (!organization) {
         return res.status(404).json({ error: 'Organization not found' });
       }
-      
+
       // Get real-time statistics
       const totalScholars = await Scholar.countDocuments({ organizationId });
-      const activeScholars = await Scholar.countDocuments({ 
-        organizationId, 
-        status: 'active' 
+      const activeScholars = await Scholar.countDocuments({
+        organizationId,
+        status: 'active'
       });
-      
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
+
       const todayAttendance = await AttendanceProof.countDocuments({
         organizationId,
         date: { $gte: today }
       });
-      
+
       res.json({
         stats: {
           totalScholars,
@@ -265,16 +265,50 @@ async function generateUniqueOrgCode(orgName) {
     .join('')
     .toUpperCase()
     .slice(0, 3);
-  
+
   let code = baseCode;
   let counter = 1;
-  
+
   while (await Organization.findOne({ code })) {
     code = `${baseCode}${counter}`;
     counter++;
   }
-  
+
   return code.padEnd(6, Math.random().toString(36).toUpperCase().slice(2));
 }
+
+// Add this route to backend/src/routes/organization.routes.js
+
+// @route   POST /api/organization/verify-code
+// @desc    Verify organization code for scholar registration
+// @access  Public
+router.post('/verify-code', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    const organization = await Organization.findOne({ code: code.toUpperCase() });
+
+    if (!organization) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invalid organization code'
+      });
+    }
+
+    res.json({
+      success: true,
+      organization: {
+        name: organization.name,
+        code: organization.code,
+        type: organization.type
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+});
 
 export default router;
