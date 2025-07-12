@@ -1,9 +1,8 @@
 // src/services/api.js
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
-
-const API_BASE_URL = 'http://10.105.120.32:5000/api';
+import { Alert, Platform } from 'react-native';
+import { API_BASE_URL } from '../config/api'; // Import from config file
 
 // Create axios instance
 const api = axios.create({
@@ -11,6 +10,7 @@ const api = axios.create({
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
 });
 
@@ -22,7 +22,11 @@ api.interceptors.request.use(
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-      console.log('API Request:', config.method.toUpperCase(), config.url.replace(API_BASE_URL, ''));
+      
+      // Debug logging
+      console.log('API Request:', config.method.toUpperCase(), config.url);
+      console.log('Full URL:', `${config.baseURL}${config.url}`);
+      
       return config;
     } catch (error) {
       console.error('Request interceptor error:', error);
@@ -38,27 +42,59 @@ api.interceptors.request.use(
 // Response interceptor
 api.interceptors.response.use(
   (response) => {
-    console.log('API Response:', response.config.url.replace(API_BASE_URL, ''), response.status);
+    console.log('API Response:', response.config.url, response.status);
     return response;
   },
-  (error) => {
-    console.error('API Error:', error.response?.data || error.message);
-    
-    if (error.response?.status === 401) {
-      // Handle unauthorized access
-      AsyncStorage.multiRemove(['authToken', 'userData', 'userType']);
-      // You might want to navigate to login screen here
+  async (error) => {
+    // Enhanced error logging
+    if (error.response) {
+      // The request was made and the server responded with a status code
+      console.error('API Error Response:', {
+        status: error.response.status,
+        data: error.response.data,
+        url: error.config?.url
+      });
+      
+      if (error.response.status === 401) {
+        // Handle unauthorized access
+        await AsyncStorage.multiRemove(['authToken', 'userData', 'userType']);
+        // You might want to navigate to login screen here
+      }
+    } else if (error.request) {
+      // The request was made but no response was received
+      console.error('API Network Error:', {
+        message: error.message,
+        url: error.config?.url,
+        baseURL: error.config?.baseURL
+      });
+    } else {
+      // Something happened in setting up the request
+      console.error('API Request Setup Error:', error.message);
     }
     
     return Promise.reject(error);
   }
 );
 
+// Test connection function
+export const testConnection = async () => {
+  try {
+    console.log('Testing API connection to:', API_BASE_URL);
+    const response = await api.get('/');
+    console.log('API connection successful:', response.data);
+    return true;
+  } catch (error) {
+    console.error('API connection failed:', error.message);
+    return false;
+  }
+};
+
 // Auth service
 export const authService = {
   async adminLogin(email, password) {
     try {
-      const response = await api.post('/auth/admin/login', { email, password });
+      // FIXED: Changed from '/auth/admin/login' to '/auth/admin-login'
+      const response = await api.post('/auth/admin-login', { email, password });
       return response.data;
     } catch (error) {
       throw error;
@@ -95,7 +131,8 @@ export const authService = {
 
   async register(data) {
     try {
-      const response = await api.post('/auth/register', data);
+      // FIXED: Changed from '/auth/register' to '/auth/register-organization'
+      const response = await api.post('/auth/register-organization', data);
       return response.data;
     } catch (error) {
       throw error;
@@ -368,213 +405,3 @@ export const biometricService = {
 
 // Default export
 export default api;
-
-// // mobile/PramaanExpo/src/services/api.js
-// import axios from 'axios';
-// import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// // Update this IP to your computer's local IP address
-// const API_BASE_URL = 'http://10.105.120.32:5000/api'; // Your backend IP
-
-// // Create axios instance
-// const api = axios.create({
-//   baseURL: API_BASE_URL,
-//   timeout: 10000,
-//   headers: {
-//     'Accept': 'application/json',
-//     'Content-Type': 'application/json',
-//   },
-// });
-
-// // Request interceptor
-// api.interceptors.request.use(
-//   async (config) => {
-//     try {
-//       // Get auth token
-//       const token = await AsyncStorage.getItem('authToken');
-//       if (token) {
-//         config.headers.Authorization = `Bearer ${token}`;
-//       }
-
-//       // Debug logging in development
-//       if (__DEV__) {
-//         console.log('API Request:', config.method?.toUpperCase(), config.url);
-//       }
-
-//       return config;
-//     } catch (error) {
-//       console.error('Request interceptor error:', error);
-//       return config;
-//     }
-//   },
-//   (error) => {
-//     return Promise.reject(error);
-//   }
-// );
-
-// // Response interceptor
-// api.interceptors.response.use(
-//   (response) => {
-//     if (__DEV__) {
-//       console.log('API Response:', response.config.url, response.status);
-//     }
-//     return response;
-//   },
-//   async (error) => {
-//     if (__DEV__) {
-//       console.error('API Error:', error.response?.status, error.message);
-//     }
-
-//     // Handle common errors
-//     if (error.response) {
-//       switch (error.response.status) {
-//         case 401:
-//           // Unauthorized - clear token and redirect to login
-//           await AsyncStorage.removeItem('authToken');
-//           await AsyncStorage.removeItem('userData');
-//           break;
-//         case 403:
-//           console.error('Forbidden - check permissions');
-//           break;
-//         case 404:
-//           console.error('Resource not found');
-//           break;
-//         case 500:
-//           console.error('Server error');
-//           break;
-//       }
-//     } else if (error.request) {
-//       console.error('Network error - no response received');
-//     } else {
-//       console.error('Error setting up request:', error.message);
-//     }
-
-//     return Promise.reject(error);
-//   }
-// );
-
-// // Auth service
-// export const authService = {
-//   adminLogin: async (email, password) => {
-//     const response = await api.post('/auth/admin-login', { email, password });
-//     return response.data;
-//   },
-  
-//   scholarLogin: async (email, password, organizationCode) => {
-//     const response = await api.post('/auth/scholar-login', { 
-//       email, 
-//       password, 
-//       organizationCode 
-//     });
-//     return response.data;
-//   },
-  
-//   registerOrganization: async (data) => {
-//     const response = await api.post('/auth/register-organization', data);
-//     return response.data;
-//   },
-  
-//   logout: async () => {
-//     await AsyncStorage.removeItem('authToken');
-//     await AsyncStorage.removeItem('userData');
-//   }
-// };
-
-// // Admin service
-// export const adminService = {
-//   getDashboard: async () => {
-//     const response = await api.get('/admin/dashboard');
-//     return response.data;
-//   },
-  
-//   getScholars: async () => {
-//     const response = await api.get('/admin/scholars');
-//     return response.data;
-//   },
-  
-//   addScholar: async (scholarData) => {
-//     const response = await api.post('/admin/scholars', scholarData);
-//     return response.data;
-//   },
-  
-//   getAnalytics: async () => {
-//     const response = await api.get('/admin/analytics');
-//     return response.data;
-//   },
-  
-//   getReports: async (params) => {
-//     const response = await api.get('/admin/reports', { params });
-//     return response.data;
-//   }
-// };
-
-// // Organization service
-// export const organizationService = {
-//   getDetails: async () => {
-//     const response = await api.get('/organization/details');
-//     return response.data;
-//   },
-  
-//   updateDetails: async (data) => {
-//     const response = await api.put('/organization/details', data);
-//     return response.data;
-//   },
-  
-//   getSettings: async () => {
-//     const response = await api.get('/organization/settings');
-//     return response.data;
-//   },
-  
-//   updateSettings: async (settings) => {
-//     const response = await api.put('/organization/settings', settings);
-//     return response.data;
-//   }
-// };
-
-// // Scholar service
-// export const scholarService = {
-//   getProfile: async () => {
-//     const response = await api.get('/scholar/profile');
-//     return response.data;
-//   },
-  
-//   getAttendanceHistory: async () => {
-//     const response = await api.get('/scholar/attendance/history');
-//     return response.data;
-//   },
-  
-//   markAttendance: async (biometricData, location) => {
-//     const response = await api.post('/attendance/mark', {
-//       biometricData,
-//       location
-//     });
-//     return response.data;
-//   },
-  
-//   getStats: async () => {
-//     const response = await api.get('/scholar/stats');
-//     return response.data;
-//   }
-// };
-
-// // Attendance service
-// export const attendanceService = {
-//   markAttendance: async (data) => {
-//     const response = await api.post('/attendance/mark', data);
-//     return response.data;
-//   },
-  
-//   verifyProof: async (proofId) => {
-//     const response = await api.get(`/attendance/verify/${proofId}`);
-//     return response.data;
-//   },
-  
-//   getHistory: async (scholarId) => {
-//     const response = await api.get('/attendance/history', {
-//       params: { scholarId }
-//     });
-//     return response.data;
-//   }
-// };
-
-// export default api;
