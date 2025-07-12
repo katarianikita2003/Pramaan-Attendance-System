@@ -22,11 +22,11 @@ api.interceptors.request.use(
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-      
+
       // Debug logging
       console.log('API Request:', config.method.toUpperCase(), config.url);
       console.log('Full URL:', `${config.baseURL}${config.url}`);
-      
+
       return config;
     } catch (error) {
       console.error('Request interceptor error:', error);
@@ -54,7 +54,7 @@ api.interceptors.response.use(
         data: error.response.data,
         url: error.config?.url
       });
-      
+
       if (error.response.status === 401) {
         // Handle unauthorized access
         await AsyncStorage.multiRemove(['authToken', 'userData', 'userType']);
@@ -71,7 +71,7 @@ api.interceptors.response.use(
       // Something happened in setting up the request
       console.error('API Request Setup Error:', error.message);
     }
-    
+
     return Promise.reject(error);
   }
 );
@@ -103,10 +103,10 @@ export const authService = {
 
   async scholarLogin(email, password, organizationCode) {
     try {
-      const response = await api.post('/auth/scholar/login', { 
-        email, 
-        password, 
-        organizationCode 
+      const response = await api.post('/auth/scholar/login', {
+        email,
+        password,
+        organizationCode
       });
       return response.data;
     } catch (error) {
@@ -197,6 +197,16 @@ export const adminService = {
 
   async addScholar(scholarData) {
     try {
+      // Log what we're sending (excluding sensitive data)
+      console.log('Sending scholar data to backend:', {
+        scholarId: scholarData.scholarId,
+        hasPersonalInfo: !!scholarData.personalInfo,
+        hasAcademicInfo: !!scholarData.academicInfo,
+        hasBiometrics: !!scholarData.biometrics,
+        organizationId: scholarData.organizationId
+      });
+
+      // Send the data as-is, with proper biometrics field
       const response = await api.post('/admin/scholars', scholarData);
       return response.data;
     } catch (error) {
@@ -241,7 +251,7 @@ export const adminService = {
         startDate: dateRange.start.toISOString(),
         endDate: dateRange.end.toISOString()
       } : {};
-      
+
       const response = await api.get('/admin/reports', { params });
       return response.data;
     } catch (error) {

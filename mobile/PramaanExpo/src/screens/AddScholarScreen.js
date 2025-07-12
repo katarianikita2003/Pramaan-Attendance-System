@@ -27,13 +27,14 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { adminService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import biometricService from '../services/biometricService';
+import zkpService from '../services/zkpService';
 
 const AddScholarScreen = ({ navigation }) => {
   const { userData } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-
+  
   // Form data state
   const [formData, setFormData] = useState({
     // Personal Info
@@ -43,24 +44,24 @@ const AddScholarScreen = ({ navigation }) => {
     phone: '',
     dateOfBirth: new Date(2000, 0, 1).toLocaleDateString('en-GB'),
     gender: 'male',
-
+    
     // Academic Info
     department: '',
     course: '',
     year: new Date().getFullYear(),
     section: '',
     rollNumber: '',
-
+    
     // Biometric Data
     fingerprints: [],
     faceData: null,
-
+    
     // Guardian Info
     guardianName: '',
     guardianPhone: '',
     guardianEmail: '',
     guardianRelation: 'parent',
-
+    
     // Password
     password: '',
   });
@@ -135,29 +136,20 @@ const AddScholarScreen = ({ navigation }) => {
   const captureFingerprint = async () => {
     try {
       setLoading(true);
-
-      // Use the actual biometric service
       const result = await biometricService.captureFingerprint();
-
+      
       if (result.success) {
-        // Add the fingerprint data to formData
         setFormData({
           ...formData,
           fingerprints: [...formData.fingerprints, result.data.id],
-          // Store the full biometric data (in production, this would be encrypted)
-          biometricTemplates: {
-            ...formData.biometricTemplates,
-            [result.data.id]: result.data,
-          }
         });
-
         Alert.alert('Success', 'Fingerprint captured successfully');
       } else {
         Alert.alert('Error', result.error || 'Failed to capture fingerprint');
       }
     } catch (error) {
       console.error('Fingerprint capture error:', error);
-      Alert.alert('Error', 'Failed to capture fingerprint. Please try again.');
+      Alert.alert('Error', 'Failed to capture fingerprint');
     } finally {
       setLoading(false);
     }
@@ -186,10 +178,10 @@ const AddScholarScreen = ({ navigation }) => {
 
     try {
       setLoading(true);
-
-      // Generate a unique DID (Decentralized Identifier) for the scholar
-      const did = `did:pramaan:${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
+      
+      console.log('Preparing scholar data with biometrics...');
+      
+      // Create the scholar data WITHOUT biometricData field
       const scholarData = {
         // Personal Info
         personalInfo: {
@@ -207,12 +199,6 @@ const AddScholarScreen = ({ navigation }) => {
           section: formData.section,
           rollNumber: formData.rollNumber,
         },
-        // Biometric Data with DID
-        biometricData: {
-          fingerprints: formData.fingerprints,
-          faceData: formData.faceData,
-          did: did, // Unique identifier for biometric data
-        },
         // Guardian Info
         guardianInfo: {
           name: formData.guardianName,
@@ -223,17 +209,41 @@ const AddScholarScreen = ({ navigation }) => {
         // Additional fields
         scholarId: formData.scholarId,
         password: formData.password,
-        organizationId: userData?.organizationId,
+        organizationId: userData?.organizationId || userData?.user?.organizationId,
       };
 
-      console.log('Submitting scholar data:', scholarData);
+      // Only add biometrics if we have ZKP service and fingerprint data
+      if (formData.fingerprints && formData.fingerprints.length > 0) {
+        try {
+          const fingerprintCommitment = await zkpService.generateFingerprintCommitment(
+            formData.fingerprints[0]
+          );
+          
+          // Add biometrics field with proper structure
+          scholarData.biometrics = {
+            fingerprintCommitment: fingerprintCommitment,
+            registeredAt: new Date().toISOString()
+          };
+          
+          console.log('Generated ZKP commitment for fingerprint');
+        } catch (zkpError) {
+          console.error('ZKP generation error:', zkpError);
+          // Continue without biometrics if ZKP fails
+        }
+      }
 
+      console.log('Sending scholar data:', {
+        ...scholarData,
+        password: '[HIDDEN]',
+        biometrics: scholarData.biometrics ? '[ZKP COMMITMENTS]' : undefined
+      });
+      
       const result = await adminService.addScholar(scholarData);
-
+      
       if (result.success) {
         Alert.alert(
           'Success',
-          'Scholar added successfully!',
+          'Scholar registered successfully!',
           [
             {
               text: 'OK',
@@ -278,7 +288,7 @@ const AddScholarScreen = ({ navigation }) => {
           mode="outlined"
           style={styles.input}
         />
-
+        
         <TextInput
           label="Full Name *"
           value={formData.name}
@@ -286,7 +296,7 @@ const AddScholarScreen = ({ navigation }) => {
           mode="outlined"
           style={styles.input}
         />
-
+        
         <TextInput
           label="Email *"
           value={formData.email}
@@ -296,7 +306,7 @@ const AddScholarScreen = ({ navigation }) => {
           keyboardType="email-address"
           autoCapitalize="none"
         />
-
+        
         <TextInput
           label="Phone Number *"
           value={formData.phone}
@@ -306,7 +316,7 @@ const AddScholarScreen = ({ navigation }) => {
           keyboardType="phone-pad"
           maxLength={10}
         />
-
+        
         <TouchableOpacity onPress={() => setShowDatePicker(true)}>
           <TextInput
             label="Date of Birth"
@@ -317,7 +327,7 @@ const AddScholarScreen = ({ navigation }) => {
             right={<TextInput.Icon icon="calendar" />}
           />
         </TouchableOpacity>
-
+        
         {showDatePicker && (
           <DateTimePicker
             value={new Date()}
@@ -327,7 +337,7 @@ const AddScholarScreen = ({ navigation }) => {
             maximumDate={new Date()}
           />
         )}
-
+        
         <Text style={styles.label}>Gender</Text>
         <RadioButton.Group
           onValueChange={(value) => setFormData({ ...formData, gender: value })}
@@ -353,7 +363,7 @@ const AddScholarScreen = ({ navigation }) => {
           mode="outlined"
           style={styles.input}
         />
-
+        
         <TextInput
           label="Course *"
           value={formData.course}
@@ -361,7 +371,7 @@ const AddScholarScreen = ({ navigation }) => {
           mode="outlined"
           style={styles.input}
         />
-
+        
         <TextInput
           label="Year *"
           value={formData.year.toString()}
@@ -370,7 +380,7 @@ const AddScholarScreen = ({ navigation }) => {
           style={styles.input}
           keyboardType="numeric"
         />
-
+        
         <TextInput
           label="Section"
           value={formData.section}
@@ -378,7 +388,7 @@ const AddScholarScreen = ({ navigation }) => {
           mode="outlined"
           style={styles.input}
         />
-
+        
         <TextInput
           label="Roll Number *"
           value={formData.rollNumber}
@@ -395,15 +405,18 @@ const AddScholarScreen = ({ navigation }) => {
       <Card.Content>
         <Text style={styles.sectionTitle}>Fingerprint Enrollment</Text>
         <Text style={styles.subtitle}>Capture fingerprint data for secure attendance</Text>
-
-        <TouchableOpacity
+        
+        <TouchableOpacity 
           style={styles.biometricButton}
           onPress={captureFingerprint}
+          disabled={loading}
         >
           <Icon name="fingerprint" size={60} color="#6200ee" />
-          <Text style={styles.biometricButtonText}>Tap to Capture Fingerprint</Text>
+          <Text style={styles.biometricButtonText}>
+            {loading ? 'Capturing...' : 'Tap to Capture Fingerprint'}
+          </Text>
         </TouchableOpacity>
-
+        
         {formData.fingerprints.length > 0 && (
           <View style={styles.capturedList}>
             <Text style={styles.capturedTitle}>Captured Fingerprints:</Text>
@@ -420,12 +433,12 @@ const AddScholarScreen = ({ navigation }) => {
             ))}
           </View>
         )}
-
+        
         <Divider style={styles.divider} />
-
+        
         <Text style={styles.sectionTitle}>Face Recognition (Optional)</Text>
         <Text style={styles.subtitle}>Capture face data for additional security</Text>
-
+        
         <TouchableOpacity style={styles.biometricButton} disabled>
           <Icon name="face" size={60} color="#ccc" />
           <Text style={[styles.biometricButtonText, { color: '#ccc' }]}>
@@ -446,7 +459,7 @@ const AddScholarScreen = ({ navigation }) => {
           mode="outlined"
           style={styles.input}
         />
-
+        
         <TextInput
           label="Guardian Phone *"
           value={formData.guardianPhone}
@@ -456,7 +469,7 @@ const AddScholarScreen = ({ navigation }) => {
           keyboardType="phone-pad"
           maxLength={10}
         />
-
+        
         <TextInput
           label="Guardian Email (Optional)"
           value={formData.guardianEmail}
@@ -466,7 +479,7 @@ const AddScholarScreen = ({ navigation }) => {
           keyboardType="email-address"
           autoCapitalize="none"
         />
-
+        
         <Text style={styles.label}>Relation</Text>
         <RadioButton.Group
           onValueChange={(value) => setFormData({ ...formData, guardianRelation: value })}
@@ -478,7 +491,7 @@ const AddScholarScreen = ({ navigation }) => {
             <RadioButton.Item label="Other" value="other" />
           </View>
         </RadioButton.Group>
-
+        
         {!formData.password && (
           <Button
             mode="outlined"
@@ -489,7 +502,7 @@ const AddScholarScreen = ({ navigation }) => {
             Generate Password
           </Button>
         )}
-
+        
         {formData.password && (
           <Card style={styles.passwordCard}>
             <Card.Content>
@@ -517,7 +530,7 @@ const AddScholarScreen = ({ navigation }) => {
             color="#6200ee"
             style={styles.progressBar}
           />
-
+          
           <View style={styles.stepIndicator}>
             {steps.map((step, index) => (
               <View key={index} style={styles.stepItem}>
@@ -543,10 +556,10 @@ const AddScholarScreen = ({ navigation }) => {
               </View>
             ))}
           </View>
-
+          
           {renderStepContent()}
         </ScrollView>
-
+        
         <View style={styles.buttonContainer}>
           {currentStep > 0 && (
             <Button
@@ -557,7 +570,7 @@ const AddScholarScreen = ({ navigation }) => {
               Previous
             </Button>
           )}
-
+          
           {currentStep < steps.length - 1 ? (
             <Button
               mode="contained"
@@ -590,7 +603,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 100, // Extra padding for button visibility
+    paddingBottom: 100,
   },
   progressBar: {
     height: 6,
