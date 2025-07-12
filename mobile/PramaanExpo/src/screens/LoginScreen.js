@@ -1,4 +1,4 @@
-// mobile/PramaanExpo/src/screens/LoginScreen.js
+// src/screens/LoginScreen.js
 import React, { useState } from 'react';
 import {
   View,
@@ -7,19 +7,20 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
-  TouchableOpacity,
   Image,
+  TouchableOpacity,
+  Alert,
 } from 'react-native';
 import {
   TextInput,
   Button,
   Card,
   RadioButton,
-  Divider,
+  HelperText,
+  ActivityIndicator,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 
 const LoginScreen = ({ navigation }) => {
@@ -28,57 +29,85 @@ const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [organizationCode, setOrganizationCode] = useState('');
-  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
+      newErrors.email = 'Invalid email format';
+    }
+
+    if (!password) {
+      newErrors.password = 'Password is required';
+    } else if (password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    if (userType === 'scholar' && !organizationCode.trim()) {
+      newErrors.organizationCode = 'Organization code is required for scholars';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleLogin = async () => {
-    // Validation
-    if (userType === 'scholar' && !organizationCode) {
-      Alert.alert('Error', 'Please enter organization code');
+    if (!validateForm()) {
       return;
     }
-    
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter email and password');
-      return;
-    }
+
+    setLoading(true);
+    setErrors({});
 
     try {
-      setLoading(true);
-      
-      // Trim email and password to remove any whitespace
-      const cleanEmail = email.trim().toLowerCase();
-      const cleanPassword = password.trim();
-      const cleanOrgCode = organizationCode.trim().toUpperCase();
-      
       console.log('Login attempt:', {
-        email: cleanEmail,
-        passwordLength: cleanPassword.length,
-        userType: userType,  // This should be 'admin' or 'scholar'
-        hasOrgCode: userType === 'scholar' ? !!cleanOrgCode : 'N/A'
+        email,
+        userType,
+        passwordLength: password.length,
+        hasOrgCode: userType === 'scholar' ? organizationCode : 'N/A'
       });
 
-      // Call login with correct parameter order
       const result = await login(
-        cleanEmail,
-        cleanPassword,
-        userType === 'scholar' ? cleanOrgCode : null,
-        userType  // This should be the string 'admin' or 'scholar'
+        email.trim().toLowerCase(),
+        password,
+        userType === 'scholar' ? organizationCode.trim() : null,
+        userType
       );
 
       if (result.success) {
         console.log('Login successful');
-        // Navigation is handled by the auth context
+        // Navigation will be handled automatically by AuthContext
       } else {
         console.log('Login failed:', result.error);
-        Alert.alert('Login Failed', result.error || 'Invalid credentials');
+        Alert.alert(
+          'Login Failed',
+          result.error || 'Invalid credentials. Please try again.',
+          [{ text: 'OK' }]
+        );
       }
     } catch (error) {
       console.error('Login error:', error);
-      Alert.alert('Login Failed', 'Please check your credentials and try again');
+      Alert.alert(
+        'Error',
+        'Unable to connect to the server. Please check your internet connection and try again.',
+        [{ text: 'OK' }]
+      );
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleForgotPassword = () => {
+    Alert.alert(
+      'Forgot Password',
+      'Please contact your administrator to reset your password.',
+      [{ text: 'OK' }]
+    );
   };
 
   return (
@@ -89,25 +118,27 @@ const LoginScreen = ({ navigation }) => {
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* Logo/Header */}
-          <View style={styles.header}>
-            <Icon name="fingerprint" size={80} color="#6C63FF" />
-            <Text style={styles.title}>Pramaan</Text>
-            <Text style={styles.subtitle}>Secure Attendance System</Text>
+          <View style={styles.logoContainer}>
+            <View style={styles.logoPlaceholder}>
+              <MaterialIcons name="verified-user" size={80} color="#6C63FF" />
+            </View>
+            <Text style={styles.appName}>Pramaan</Text>
+            <Text style={styles.tagline}>Secure Attendance System</Text>
           </View>
 
-          {/* Login Form */}
           <Card style={styles.card}>
             <Card.Content>
-              {/* User Type Selection */}
-              <View style={styles.radioContainer}>
-                <Text style={styles.radioLabel}>Login as:</Text>
+              <Text style={styles.title}>Welcome Back</Text>
+              <Text style={styles.subtitle}>Sign in to continue</Text>
+
+              <View style={styles.userTypeContainer}>
+                <Text style={styles.userTypeLabel}>I am a:</Text>
                 <RadioButton.Group
-                  onValueChange={(value) => {
-                    console.log('User type changed to:', value);
+                  onValueChange={value => {
                     setUserType(value);
+                    setErrors({});
                   }}
                   value={userType}
                 >
@@ -118,108 +149,119 @@ const LoginScreen = ({ navigation }) => {
                 </RadioButton.Group>
               </View>
 
-              {/* Organization Code (for scholars) */}
-              {userType === 'scholar' && (
-                <TextInput
-                  label="Organization Code"
-                  value={organizationCode}
-                  onChangeText={setOrganizationCode}
-                  style={styles.input}
-                  mode="outlined"
-                  autoCapitalize="characters"
-                  outlineColor="#6C63FF"
-                  activeOutlineColor="#6C63FF"
-                  left={<TextInput.Icon icon="domain" />}
-                />
-              )}
-
-              {/* Email Input */}
               <TextInput
                 label="Email"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={text => {
+                  setEmail(text);
+                  if (errors.email) {
+                    setErrors({ ...errors, email: null });
+                  }
+                }}
                 style={styles.input}
                 mode="outlined"
                 keyboardType="email-address"
                 autoCapitalize="none"
-                outlineColor="#6C63FF"
-                activeOutlineColor="#6C63FF"
                 left={<TextInput.Icon icon="email" />}
+                error={!!errors.email}
               />
+              <HelperText type="error" visible={!!errors.email}>
+                {errors.email}
+              </HelperText>
 
-              {/* Password Input */}
               <TextInput
                 label="Password"
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={text => {
+                  setPassword(text);
+                  if (errors.password) {
+                    setErrors({ ...errors, password: null });
+                  }
+                }}
                 style={styles.input}
                 mode="outlined"
                 secureTextEntry={!showPassword}
-                outlineColor="#6C63FF"
-                activeOutlineColor="#6C63FF"
                 left={<TextInput.Icon icon="lock" />}
                 right={
                   <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
+                    icon={showPassword ? "eye-off" : "eye"}
                     onPress={() => setShowPassword(!showPassword)}
                   />
                 }
+                error={!!errors.password}
               />
+              <HelperText type="error" visible={!!errors.password}>
+                {errors.password}
+              </HelperText>
 
-              {/* Forgot Password */}
-              <TouchableOpacity style={styles.forgotPassword}>
-                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              {userType === 'scholar' && (
+                <>
+                  <TextInput
+                    label="Organization Code"
+                    value={organizationCode}
+                    onChangeText={text => {
+                      setOrganizationCode(text);
+                      if (errors.organizationCode) {
+                        setErrors({ ...errors, organizationCode: null });
+                      }
+                    }}
+                    style={styles.input}
+                    mode="outlined"
+                    autoCapitalize="characters"
+                    left={<TextInput.Icon icon="domain" />}
+                    error={!!errors.organizationCode}
+                  />
+                  <HelperText type="error" visible={!!errors.organizationCode}>
+                    {errors.organizationCode}
+                  </HelperText>
+                </>
+              )}
+
+              <TouchableOpacity onPress={handleForgotPassword}>
+                <Text style={styles.forgotPassword}>Forgot Password?</Text>
               </TouchableOpacity>
 
-              {/* Login Button */}
               <Button
                 mode="contained"
                 onPress={handleLogin}
+                style={styles.loginButton}
                 loading={loading}
                 disabled={loading}
-                style={styles.loginButton}
-                contentStyle={styles.loginButtonContent}
               >
-                Login
+                {loading ? 'Signing in...' : 'Sign In'}
               </Button>
 
-              <Divider style={styles.divider} />
-
-              {/* Register Organization Button */}
-              <Button
-                mode="outlined"
-                onPress={() => navigation.navigate('RegisterOrganization')}
-                style={styles.registerButton}
-                contentStyle={styles.registerButtonContent}
-                icon="plus-circle"
-              >
-                Register New Organization
-              </Button>
-
-              {/* Help Text */}
-              <View style={styles.helpContainer}>
-                <Icon name="info-outline" size={16} color="#666" />
-                <Text style={styles.helpText}>
-                  {userType === 'admin' 
-                    ? 'Use your admin email and password to login'
-                    : 'Ask your organization admin for the organization code'}
-                </Text>
-              </View>
+              {userType === 'admin' && (
+                <View style={styles.registerContainer}>
+                  <Text style={styles.registerText}>
+                    New organization?{' '}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Alert.alert(
+                        'Registration',
+                        'Please contact the system administrator to register your organization.',
+                        [{ text: 'OK' }]
+                      );
+                    }}
+                  >
+                    <Text style={styles.registerLink}>Register here</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </Card.Content>
           </Card>
 
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              Powered by Zero-Knowledge Proof Technology
-            </Text>
-            <View style={styles.securityBadges}>
-              <Icon name="lock" size={16} color="#666" />
-              <Text style={styles.securityText}>End-to-End Encrypted</Text>
-              <Icon name="verified-user" size={16} color="#666" style={{ marginLeft: 10 }} />
-              <Text style={styles.securityText}>Privacy Protected</Text>
-            </View>
-          </View>
+          {/* Test Credentials Info - Remove in production */}
+          {__DEV__ && (
+            <Card style={[styles.card, styles.debugCard]}>
+              <Card.Content>
+                <Text style={styles.debugTitle}>Test Credentials</Text>
+                <Text style={styles.debugText}>Admin: admin1@gmail.com / Test@123</Text>
+                <Text style={styles.debugText}>Scholar: scholar1@example.com / password123 / TEST001</Text>
+              </Card.Content>
+            </Card>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -237,99 +279,103 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingVertical: 20,
+    padding: 20,
   },
-  header: {
+  logoContainer: {
     alignItems: 'center',
     marginBottom: 30,
   },
-  title: {
+  logoPlaceholder: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#f0f0ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  appName: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#333',
-    marginTop: 10,
+    marginBottom: 4,
+  },
+  tagline: {
+    fontSize: 16,
+    color: '#666',
+  },
+  card: {
+    elevation: 4,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+    color: '#333',
   },
   subtitle: {
     fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
     color: '#666',
-    marginTop: 5,
   },
-  card: {
-    marginHorizontal: 20,
-    elevation: 4,
+  userTypeContainer: {
+    marginBottom: 16,
   },
-  radioContainer: {
-    marginBottom: 20,
-  },
-  radioLabel: {
+  userTypeLabel: {
     fontSize: 16,
     marginBottom: 8,
     color: '#333',
-    fontWeight: '500',
   },
   radioRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
   },
   input: {
-    marginBottom: 16,
+    marginBottom: 4,
   },
   forgotPassword: {
-    alignSelf: 'flex-end',
-    marginBottom: 20,
-  },
-  forgotPasswordText: {
+    textAlign: 'right',
     color: '#6C63FF',
+    marginTop: 8,
+    marginBottom: 16,
     fontSize: 14,
   },
   loginButton: {
-    backgroundColor: '#6C63FF',
-    marginBottom: 16,
-  },
-  loginButtonContent: {
-    paddingVertical: 8,
-  },
-  divider: {
-    marginVertical: 16,
-  },
-  registerButton: {
-    borderColor: '#6C63FF',
-    marginBottom: 16,
-  },
-  registerButtonContent: {
+    marginTop: 8,
     paddingVertical: 6,
   },
-  helpContainer: {
+  registerContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    padding: 12,
-    borderRadius: 8,
+    justifyContent: 'center',
+    marginTop: 20,
   },
-  helpText: {
-    flex: 1,
-    fontSize: 12,
+  registerText: {
     color: '#666',
-    marginLeft: 8,
+    fontSize: 14,
   },
-  footer: {
-    alignItems: 'center',
-    marginTop: 30,
-    paddingHorizontal: 20,
+  registerLink: {
+    color: '#6C63FF',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  footerText: {
-    fontSize: 12,
-    color: '#999',
+  debugCard: {
+    backgroundColor: '#fff3cd',
+    borderColor: '#ffeaa7',
+  },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
     marginBottom: 8,
+    color: '#856404',
   },
-  securityBadges: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  securityText: {
-    fontSize: 11,
-    color: '#666',
-    marginLeft: 4,
+  debugText: {
+    fontSize: 12,
+    color: '#856404',
+    marginBottom: 4,
   },
 });
 

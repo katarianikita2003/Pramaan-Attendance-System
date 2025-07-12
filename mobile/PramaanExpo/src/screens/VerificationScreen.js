@@ -1,6 +1,6 @@
 ﻿import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-export default function AttendanceHistoryScreen({ route }) {
+export default function VerificationScreen({ route }) {
   const screenName = route.name || 'Screen';
   return (
     <View style={styles.container}>

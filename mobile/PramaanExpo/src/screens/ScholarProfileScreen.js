@@ -5,152 +5,55 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  Image,
   TouchableOpacity,
   Alert,
-  Image,
+  ActivityIndicator,
+  Modal,
+  TextInput,
 } from 'react-native';
 import {
   Card,
   Button,
-  TextInput,
-  Avatar,
-  IconButton,
-  Dialog,
-  Portal,
   List,
   Divider,
-  Switch,
+  Chip,
+  // Remove Portal and Dialog imports
 } from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialIcons as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import * as ImagePicker from 'expo-image-picker';
-import { useAuth } from '../contexts/AuthContext';
-import { scholarService } from '../services/api';
+import { api } from '../services/api';
 
-const ScholarProfileScreen = ({ navigation }) => {
-  const { user, updateUser, logout } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  const [profileData, setProfileData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    department: '',
-    year: '',
-    scholarId: '',
-    profileImage: null,
-  });
+export default function ScholarProfileScreen({ route }) {
+  const { scholarId } = route.params;
+  const [scholar, setScholar] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
   });
-  const [settings, setSettings] = useState({
-    notificationsEnabled: true,
-    biometricEnabled: true,
-    locationTracking: true,
-  });
 
   useEffect(() => {
-    loadProfile();
+    fetchScholarDetails();
   }, []);
 
-  const loadProfile = async () => {
+  const fetchScholarDetails = async () => {
     try {
-      setLoading(true);
-      const response = await scholarService.getProfile();
-      
-      if (response.success) {
-        setProfileData({
-          name: response.data.personalInfo.name,
-          email: response.data.personalInfo.email,
-          phone: response.data.personalInfo.phone || '',
-          department: response.data.academicInfo?.department || '',
-          year: response.data.academicInfo?.year || '',
-          scholarId: response.data.scholarId,
-          profileImage: response.data.personalInfo.profileImage,
-        });
-        
-        setSettings({
-          notificationsEnabled: response.data.settings?.notifications ?? true,
-          biometricEnabled: response.data.settings?.biometric ?? true,
-          locationTracking: response.data.settings?.location ?? true,
-        });
-      }
+      const response = await api.get(`/scholars/${scholarId}`);
+      setScholar(response.data);
     } catch (error) {
-      console.error('Load profile error:', error);
-      Alert.alert('Error', 'Failed to load profile');
-    } finally {
-      setLoading(false);
+      Alert.alert('Error', 'Failed to fetch scholar details');
     }
+    setLoading(false);
   };
 
-  const handleUpdateProfile = async () => {
-    try {
-      setLoading(true);
-      const response = await scholarService.updateProfile({
-        personalInfo: {
-          name: profileData.name,
-          phone: profileData.phone,
-        },
-        academicInfo: {
-          department: profileData.department,
-          year: profileData.year,
-        },
-      });
-
-      if (response.success) {
-        Alert.alert('Success', 'Profile updated successfully');
-        setEditMode(false);
-        updateUser(response.data);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update profile');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleChangePassword = async () => {
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      Alert.alert('Error', 'New passwords do not match');
-      return;
-    }
-
-    if (passwordData.newPassword.length < 8) {
-      Alert.alert('Error', 'Password must be at least 8 characters');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const response = await scholarService.changePassword({
-        currentPassword: passwordData.currentPassword,
-        newPassword: passwordData.newPassword,
-      });
-
-      if (response.success) {
-        Alert.alert('Success', 'Password changed successfully');
-        setShowPasswordDialog(false);
-        setPasswordData({
-          currentPassword: '',
-          newPassword: '',
-          confirmPassword: '',
-        });
-      }
-    } catch (error) {
-      Alert.alert('Error', error.response?.data?.error || 'Failed to change password');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleImagePicker = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  const handleProfilePictureUpdate = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
-    if (permissionResult.granted === false) {
-      Alert.alert('Permission Required', 'Please allow access to your photo library');
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Camera roll permissions are required');
       return;
     }
 
@@ -159,367 +62,423 @@ const ScholarProfileScreen = ({ navigation }) => {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.5,
+      base64: true,
     });
 
     if (!result.canceled) {
-      // Upload image logic here
-      setProfileData({ ...profileData, profileImage: result.assets[0].uri });
+      updateProfilePicture(result.assets[0].base64);
     }
   };
 
-  const handleSettingChange = async (setting, value) => {
+  const updateProfilePicture = async (base64Image) => {
+    setLoading(true);
     try {
-      const newSettings = { ...settings, [setting]: value };
-      setSettings(newSettings);
-      
-      // Update on server
-      await scholarService.updateSettings({
-        [setting]: value,
+      await api.put(`/scholars/${scholarId}/profile-picture`, {
+        image: base64Image,
+      });
+      Alert.alert('Success', 'Profile picture updated successfully');
+      fetchScholarDetails();
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update profile picture');
+    }
+    setLoading(false);
+  };
+
+  const handleBiometricUpdate = () => {
+    Alert.alert(
+      'Update Biometrics',
+      'This will replace your current biometric data. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', onPress: updateBiometrics },
+      ]
+    );
+  };
+
+  const updateBiometrics = async () => {
+    // Navigate to biometric capture screen
+    // For now, show a placeholder alert
+    Alert.alert('Info', 'Biometric update feature coming soon');
+  };
+
+  const handlePasswordChange = async () => {
+    const { currentPassword, newPassword, confirmPassword } = passwordData;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      Alert.alert('Error', 'Please fill all fields');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Error', 'New passwords do not match');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.put(`/scholars/${scholarId}/password`, {
+        currentPassword,
+        newPassword,
+      });
+      Alert.alert('Success', 'Password changed successfully');
+      setShowPasswordModal(false);
+      setPasswordData({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
       });
     } catch (error) {
-      // Revert on error
-      setSettings(settings);
-      Alert.alert('Error', 'Failed to update setting');
+      Alert.alert('Error', error.response?.data?.message || 'Failed to change password');
     }
+    setLoading(false);
   };
 
-  const renderProfileHeader = () => (
-    <View style={styles.profileHeader}>
-      <TouchableOpacity onPress={editMode ? handleImagePicker : null}>
-        {profileData.profileImage ? (
-          <Image source={{ uri: profileData.profileImage }} style={styles.profileImage} />
-        ) : (
-          <Avatar.Text
-            size={80}
-            label={profileData.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-            style={styles.avatar}
-          />
-        )}
-        {editMode && (
-          <View style={styles.editImageOverlay}>
-            <Icon name="camera-alt" size={24} color="white" />
-          </View>
-        )}
-      </TouchableOpacity>
-      
-      <Text style={styles.profileName}>{profileData.name}</Text>
-      <Text style={styles.scholarId}>Scholar ID: {profileData.scholarId}</Text>
-      
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{user?.attendancePercentage || 0}%</Text>
-          <Text style={styles.statLabel}>Attendance</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{user?.totalPresent || 0}</Text>
-          <Text style={styles.statLabel}>Present</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{user?.totalDays || 0}</Text>
-          <Text style={styles.statLabel}>Total Days</Text>
-        </View>
+  if (loading) {
+    return (
+      <View style={styles.loaderContainer}>
+        <ActivityIndicator size="large" />
       </View>
-    </View>
-  );
+    );
+  }
+
+  if (!scholar) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text>Scholar not found</Text>
+      </View>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <IconButton
-          icon={editMode ? 'check' : 'pencil'}
-          onPress={editMode ? handleUpdateProfile : () => setEditMode(true)}
-        />
-      </View>
+    <ScrollView style={styles.container}>
+      {/* Profile Header */}
+      <Card style={styles.profileCard}>
+        <View style={styles.profileHeader}>
+          <TouchableOpacity onPress={handleProfilePictureUpdate}>
+            <Image
+              source={
+                scholar.profilePicture
+                  ? { uri: scholar.profilePicture }
+                  : require('../../assets/adaptive-icon.png')
+              }
+              style={styles.profileImage}
+            />
+            <View style={styles.editBadge}>
+              <Icon name="camera" size={16} color="white" />
+            </View>
+          </TouchableOpacity>
+          <View style={styles.profileInfo}>
+            <Text style={styles.scholarName}>{scholar.name}</Text>
+            <Text style={styles.scholarId}>{scholar.id}</Text>
+            <Chip style={styles.statusChip}>
+              {scholar.isActive ? 'Active' : 'Inactive'}
+            </Chip>
+          </View>
+        </View>
+      </Card>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {renderProfileHeader()}
+      {/* Personal Information */}
+      <Card style={styles.card}>
+        <Card.Title title="Personal Information" />
+        <Card.Content>
+          <List.Item
+            title="Email"
+            description={scholar.email}
+            left={(props) => <List.Icon {...props} icon="email" />}
+          />
+          <Divider />
+          <List.Item
+            title="Phone"
+            description={scholar.phone}
+            left={(props) => <List.Icon {...props} icon="phone" />}
+          />
+          <Divider />
+          <List.Item
+            title="Date of Birth"
+            description={new Date(scholar.dateOfBirth).toLocaleDateString()}
+            left={(props) => <List.Icon {...props} icon="calendar" />}
+          />
+          <Divider />
+          <List.Item
+            title="Address"
+            description={scholar.address}
+            left={(props) => <List.Icon {...props} icon="map-marker" />}
+          />
+        </Card.Content>
+      </Card>
 
-        {/* Personal Information */}
-        <Card style={styles.card}>
-          <Card.Title title="Personal Information" />
-          <Card.Content>
-            <TextInput
-              label="Full Name"
-              value={profileData.name}
-              onChangeText={(text) => setProfileData({ ...profileData, name: text })}
-              mode="outlined"
-              disabled={!editMode}
-              style={styles.input}
-            />
-            
-            <TextInput
-              label="Email"
-              value={profileData.email}
-              mode="outlined"
-              disabled
-              style={styles.input}
-            />
-            
-            <TextInput
-              label="Phone Number"
-              value={profileData.phone}
-              onChangeText={(text) => setProfileData({ ...profileData, phone: text })}
-              mode="outlined"
-              disabled={!editMode}
-              keyboardType="phone-pad"
-              style={styles.input}
-            />
-          </Card.Content>
-        </Card>
+      {/* Academic Information */}
+      <Card style={styles.card}>
+        <Card.Title title="Academic Information" />
+        <Card.Content>
+          <List.Item
+            title="Department"
+            description={scholar.department}
+            left={(props) => <List.Icon {...props} icon="school" />}
+          />
+          <Divider />
+          <List.Item
+            title="Program"
+            description={scholar.program}
+            left={(props) => <List.Icon {...props} icon="book" />}
+          />
+          <Divider />
+          <List.Item
+            title="Year"
+            description={`Year ${scholar.year}`}
+            left={(props) => <List.Icon {...props} icon="calendar-clock" />}
+          />
+          <Divider />
+          <List.Item
+            title="Enrollment Date"
+            description={new Date(scholar.enrollmentDate).toLocaleDateString()}
+            left={(props) => <List.Icon {...props} icon="calendar-check" />}
+          />
+        </Card.Content>
+      </Card>
 
-        {/* Academic Information */}
-        <Card style={styles.card}>
-          <Card.Title title="Academic Information" />
-          <Card.Content>
-            <TextInput
-              label="Department"
-              value={profileData.department}
-              onChangeText={(text) => setProfileData({ ...profileData, department: text })}
-              mode="outlined"
-              disabled={!editMode}
-              style={styles.input}
-            />
-            
-            <TextInput
-              label="Year"
-              value={profileData.year}
-              onChangeText={(text) => setProfileData({ ...profileData, year: text })}
-              mode="outlined"
-              disabled={!editMode}
-              style={styles.input}
-            />
-          </Card.Content>
-        </Card>
+      {/* Attendance Summary */}
+      <Card style={styles.card}>
+        <Card.Title title="Attendance Summary" />
+        <Card.Content>
+          <View style={styles.attendanceStats}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{scholar.attendanceStats?.present || 0}</Text>
+              <Text style={styles.statLabel}>Present</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{scholar.attendanceStats?.absent || 0}</Text>
+              <Text style={styles.statLabel}>Absent</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{scholar.attendanceStats?.late || 0}</Text>
+              <Text style={styles.statLabel}>Late</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>
+                {scholar.attendanceStats?.percentage || 0}%
+              </Text>
+              <Text style={styles.statLabel}>Overall</Text>
+            </View>
+          </View>
+        </Card.Content>
+      </Card>
 
-        {/* Settings */}
-        <Card style={styles.card}>
-          <Card.Title title="Settings" />
-          <Card.Content>
-            <List.Item
-              title="Notifications"
-              description="Receive attendance reminders"
-              left={() => <List.Icon icon="bell" />}
-              right={() => (
-                <Switch
-                  value={settings.notificationsEnabled}
-                  onValueChange={(value) => handleSettingChange('notificationsEnabled', value)}
-                />
-              )}
-            />
-            <Divider />
-            
-            <List.Item
-              title="Biometric Authentication"
-              description="Use fingerprint/face for attendance"
-              left={() => <List.Icon icon="fingerprint" />}
-              right={() => (
-                <Switch
-                  value={settings.biometricEnabled}
-                  onValueChange={(value) => handleSettingChange('biometricEnabled', value)}
-                />
-              )}
-            />
-            <Divider />
-            
-            <List.Item
-              title="Location Tracking"
-              description="Verify attendance location"
-              left={() => <List.Icon icon="map-marker" />}
-              right={() => (
-                <Switch
-                  value={settings.locationTracking}
-                  onValueChange={(value) => handleSettingChange('locationTracking', value)}
-                />
-              )}
-            />
-          </Card.Content>
-        </Card>
-
-        {/* Actions */}
-        <View style={styles.actions}>
+      {/* Security Settings */}
+      <Card style={styles.card}>
+        <Card.Title title="Security Settings" />
+        <Card.Content>
           <Button
             mode="outlined"
-            icon="lock-reset"
-            onPress={() => setShowPasswordDialog(true)}
+            onPress={() => setShowPasswordModal(true)}
+            icon="lock"
             style={styles.actionButton}
           >
             Change Password
           </Button>
-          
           <Button
             mode="outlined"
-            icon="download"
-            onPress={() => navigation.navigate('AttendanceReport')}
+            onPress={handleBiometricUpdate}
+            icon="face-recognition"
             style={styles.actionButton}
           >
-            Download Report
+            Update Biometrics
           </Button>
-          
-          <Button
-            mode="contained"
-            icon="logout"
-            onPress={logout}
-            style={[styles.actionButton, styles.logoutButton]}
-            contentStyle={styles.logoutButtonContent}
-          >
-            Logout
-          </Button>
-        </View>
-      </ScrollView>
+        </Card.Content>
+      </Card>
 
-      {/* Change Password Dialog */}
-      <Portal>
-        <Dialog
-          visible={showPasswordDialog}
-          onDismiss={() => setShowPasswordDialog(false)}
-        >
-          <Dialog.Title>Change Password</Dialog.Title>
-          <Dialog.Content>
+      {/* Change Password Modal */}
+      <Modal
+        visible={showPasswordModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowPasswordModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Change Password</Text>
+            
             <TextInput
-              label="Current Password"
+              style={styles.modalInput}
+              placeholder="Current Password"
               value={passwordData.currentPassword}
-              onChangeText={(text) => setPasswordData({ ...passwordData, currentPassword: text })}
-              mode="outlined"
+              onChangeText={(text) =>
+                setPasswordData({ ...passwordData, currentPassword: text })
+              }
               secureTextEntry
-              style={styles.dialogInput}
             />
             
             <TextInput
-              label="New Password"
+              style={styles.modalInput}
+              placeholder="New Password"
               value={passwordData.newPassword}
-              onChangeText={(text) => setPasswordData({ ...passwordData, newPassword: text })}
-              mode="outlined"
+              onChangeText={(text) =>
+                setPasswordData({ ...passwordData, newPassword: text })
+              }
               secureTextEntry
-              style={styles.dialogInput}
             />
             
             <TextInput
-              label="Confirm New Password"
+              style={styles.modalInput}
+              placeholder="Confirm New Password"
               value={passwordData.confirmPassword}
-              onChangeText={(text) => setPasswordData({ ...passwordData, confirmPassword: text })}
-              mode="outlined"
+              onChangeText={(text) =>
+                setPasswordData({ ...passwordData, confirmPassword: text })
+              }
               secureTextEntry
-              style={styles.dialogInput}
             />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setShowPasswordDialog(false)}>Cancel</Button>
-            <Button onPress={handleChangePassword} loading={loading}>
-              Change Password
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-    </SafeAreaView>
+            
+            <View style={styles.modalActions}>
+              <Button
+                mode="text"
+                onPress={() => {
+                  setShowPasswordModal(false);
+                  setPasswordData({
+                    currentPassword: '',
+                    newPassword: '',
+                    confirmPassword: '',
+                  });
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                onPress={handlePasswordChange}
+                loading={loading}
+              >
+                Change Password
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F3F4F6',
   },
-  header: {
-    flexDirection: 'row',
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    backgroundColor: 'white',
-    elevation: 2,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  scrollContent: {
-    paddingBottom: 20,
+  profileCard: {
+    margin: 16,
+    elevation: 4,
   },
   profileHeader: {
+    flexDirection: 'row',
+    padding: 20,
     alignItems: 'center',
-    paddingVertical: 24,
-    backgroundColor: 'white',
   },
   profileImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#E5E7EB',
   },
-  avatar: {
-    backgroundColor: '#6C63FF',
-  },
-  editImageOverlay: {
+  editBadge: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 16,
-    padding: 4,
-  },
-  profileName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginTop: 12,
-    color: '#333',
-  },
-  scholarId: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    marginTop: 20,
-    paddingHorizontal: 40,
-  },
-  statItem: {
+    backgroundColor: '#1E3A8A',
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
     alignItems: 'center',
+  },
+  profileInfo: {
+    marginLeft: 20,
     flex: 1,
   },
-  statValue: {
-    fontSize: 20,
+  scholarName: {
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1F2937',
   },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
+  scholarId: {
+    fontSize: 16,
+    color: '#6B7280',
     marginTop: 4,
   },
-  statDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: '#e0e0e0',
+  statusChip: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
   },
   card: {
     margin: 16,
-    elevation: 2,
+    marginTop: 0,
+    elevation: 4,
   },
-  input: {
-    marginBottom: 12,
-  },
-  actions: {
-    paddingHorizontal: 16,
+  attendanceStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
     marginTop: 8,
   },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+  },
   actionButton: {
-    marginBottom: 12,
+    marginTop: 12,
   },
-  logoutButton: {
-    backgroundColor: '#FF5252',
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  logoutButtonContent: {
-    paddingVertical: 6,
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 20,
+    width: '85%',
+    maxWidth: 400,
+    elevation: 5,
   },
-  dialogInput: {
-    marginBottom: 12,
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+    color: '#1F2937',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    fontSize: 16,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 8,
   },
 });
-
-export default ScholarProfileScreen;

@@ -1,56 +1,58 @@
-// Step 1: Fix App.js - Remove NavigationContainer from here
 // mobile/PramaanExpo/App.js
-import React from 'react';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import 'react-native-gesture-handler';
+import React, { useEffect, useState } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
 import { Provider as PaperProvider, DefaultTheme } from 'react-native-paper';
-import { AuthProvider } from './src/contexts/AuthContext';
+import { StatusBar } from 'expo-status-bar';
+import { ActivityIndicator, View } from 'react-native';
+import * as Font from 'expo-font';
 import AppNavigator from './src/navigation/AppNavigator';
-import { LogBox } from 'react-native';
+import { AuthProvider } from './src/contexts/AuthContext';
 
-// Ignore specific warnings if needed
-LogBox.ignoreLogs([
-  'Non-serializable values were found in the navigation state',
-]);
-
-// Create a complete theme configuration
+// Define theme without portal property
 const theme = {
   ...DefaultTheme,
-  roundness: 2,
-  version: 3,
   colors: {
     ...DefaultTheme.colors,
-    primary: '#6C63FF',
-    secondary: '#FF6B6B',
-    tertiary: '#03dac6',
-    quaternary: '#018786',
-    surface: '#ffffff',
-    background: '#f6f6f6',
-    error: '#B00020',
-    onPrimary: '#ffffff',
-    onSecondary: '#000000',
-    onBackground: '#000000',
-    onSurface: '#000000',
-    onError: '#ffffff',
-    text: '#000000',
-    disabled: 'rgba(0, 0, 0, 0.26)',
-    placeholder: 'rgba(0, 0, 0, 0.54)',
-    backdrop: 'rgba(0, 0, 0, 0.5)',
-    notification: '#f50057',
-    // These are the properties that Dialog might be looking for
-    surfaceVariant: '#e0e0e0',
-    onSurfaceVariant: '#000000',
-    outline: '#737373',
+    primary: '#1E3A8A',
+    accent: '#F59E0B',
   },
 };
 
 export default function App() {
+  const [fontsLoaded, setFontsLoaded] = useState(false);
+
+  useEffect(() => {
+    async function loadFonts() {
+      try {
+        await Font.loadAsync({
+          'MaterialCommunityIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf'),
+        });
+        setFontsLoaded(true);
+      } catch (error) {
+        console.error('Error loading fonts:', error);
+        setFontsLoaded(true); // Continue anyway
+      }
+    }
+    loadFonts();
+  }, []);
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
   return (
-    <SafeAreaProvider>
+    <AuthProvider>
       <PaperProvider theme={theme}>
-        <AuthProvider>
+        <NavigationContainer>
+          <StatusBar style="auto" />
           <AppNavigator />
-        </AuthProvider>
+        </NavigationContainer>
       </PaperProvider>
-    </SafeAreaProvider>
+    </AuthProvider>
   );
 }

@@ -6,685 +6,425 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  FlatList,
-  RefreshControl,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import {
   Card,
-  Title,
-  Paragraph,
   Button,
   DataTable,
   Searchbar,
   Chip,
-  FAB,
-  Portal,
-  Modal,
-  RadioButton,
-  IconButton,
+  List,
+  Divider,
+  // Remove Portal and Modal imports
 } from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialIcons as Icon } from '@expo/vector-icons';
-// Remove DateTimePicker import - we'll use a custom solution
-import { adminService } from '../services/api';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { api } from '../services/api';
 
-const ReportsScreen = ({ navigation, route }) => {
-  const initialTab = route.params?.tab || 'overview';
-  const [activeTab, setActiveTab] = useState(initialTab);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+export default function ReportsScreen({ navigation }) {
+  const [loading, setLoading] = useState(false);
+  const [reportType, setReportType] = useState('attendance');
+  const [dateRange, setDateRange] = useState({
+    start: new Date(new Date().setDate(new Date().getDate() - 30)),
+    end: new Date(),
+  });
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [reportData, setReportData] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [datePickerMode, setDatePickerMode] = useState('start');
-  const [showFilterModal, setShowFilterModal] = useState(false);
-  const [showDateModal, setShowDateModal] = useState(false);
-  const [tempDate, setTempDate] = useState(new Date());
-  
-  // Data states
-  const [overviewData, setOverviewData] = useState({
-    totalScholars: 0,
-    presentToday: 0,
-    absentToday: 0,
-    averageAttendance: 0,
-  });
-  const [scholars, setScholars] = useState([]);
-  const [attendanceRecords, setAttendanceRecords] = useState([]);
-  
-  // Filter states
-  const [filters, setFilters] = useState({
-    startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
-    endDate: new Date(),
-    department: 'all',
-    status: 'all',
-  });
 
-  useEffect(() => {
-    loadReportData();
-  }, [activeTab, filters]);
+  const reportTypes = [
+    { id: 'attendance', title: 'Attendance Report', icon: 'calendar-check' },
+    { id: 'scholar', title: 'Scholar Report', icon: 'account-details' },
+    { id: 'department', title: 'Department Report', icon: 'office-building' },
+    { id: 'monthly', title: 'Monthly Summary', icon: 'calendar-month' },
+  ];
 
-  const loadReportData = async () => {
+  const generateReport = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      if (activeTab === 'overview') {
-        const response = await adminService.getDashboard();
-        if (response.success) {
-          setOverviewData(response.stats);
-        }
-      } else if (activeTab === 'scholars') {
-        const response = await adminService.getScholars();
-        if (response.success) {
-          setScholars(response.scholars);
-        }
-      } else if (activeTab === 'attendance') {
-        const response = await adminService.getAttendanceReports(filters);
-        if (response.success) {
-          setAttendanceRecords(response.records);
-        }
-      }
-    } catch (error) {
-      console.error('Load report data error:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadReportData();
-  };
-
-  const handleDateChange = (selectedDate) => {
-    setShowDateModal(false);
-    if (selectedDate) {
-      setFilters({
-        ...filters,
-        [datePickerMode === 'start' ? 'startDate' : 'endDate']: selectedDate,
+      const response = await api.post('/reports/generate', {
+        type: reportType,
+        startDate: dateRange.start.toISOString(),
+        endDate: dateRange.end.toISOString(),
       });
+      setReportData(response.data);
+      Alert.alert('Success', 'Report generated successfully');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to generate report');
     }
+    setLoading(false);
   };
 
-  // Simple date picker using TextInput
-  const showDatePickerModal = (mode) => {
-    setDatePickerMode(mode);
-    setTempDate(filters[mode === 'start' ? 'startDate' : 'endDate']);
-    setShowDateModal(true);
+  const exportReport = async (format) => {
+    Alert.alert(
+      'Export Report',
+      `Export report as ${format.toUpperCase()}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Export',
+          onPress: async () => {
+            try {
+              await api.post('/reports/export', {
+                reportId: reportData.id,
+                format: format,
+              });
+              Alert.alert('Success', `Report exported as ${format.toUpperCase()}`);
+            } catch (error) {
+              Alert.alert('Error', 'Failed to export report');
+            }
+          },
+        },
+      ]
+    );
   };
 
-  const filteredScholars = scholars.filter(scholar =>
-    scholar.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    scholar.scholarId.toLowerCase().includes(searchQuery.toLowerCase())
+  const shareReport = async () => {
+    Alert.alert(
+      'Share Report',
+      'Choose sharing method:',
+      [
+        { text: 'Email', onPress: () => shareViaEmail() },
+        { text: 'WhatsApp', onPress: () => shareViaWhatsApp() },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const shareViaEmail = async () => {
+    Alert.prompt(
+      'Email Report',
+      'Enter recipient email:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send',
+          onPress: async (email) => {
+            if (email && email.includes('@')) {
+              try {
+                await api.post('/reports/share', {
+                  reportId: reportData.id,
+                  method: 'email',
+                  recipient: email,
+                });
+                Alert.alert('Success', 'Report sent via email');
+              } catch (error) {
+                Alert.alert('Error', 'Failed to send report');
+              }
+            } else {
+              Alert.alert('Invalid Email', 'Please enter a valid email address');
+            }
+          },
+        },
+      ],
+      'plain-text',
+      '',
+      'email-address'
+    );
+  };
+
+  const shareViaWhatsApp = async () => {
+    Alert.alert('Info', 'WhatsApp sharing coming soon');
+  };
+
+  const renderReportTypeCard = (type) => (
+    <TouchableOpacity
+      key={type.id}
+      onPress={() => setReportType(type.id)}
+      style={[
+        styles.reportTypeCard,
+        reportType === type.id && styles.selectedReportType,
+      ]}
+    >
+      <Icon
+        name={type.icon}
+        size={32}
+        color={reportType === type.id ? '#FFFFFF' : '#1E3A8A'}
+      />
+      <Text
+        style={[
+          styles.reportTypeText,
+          reportType === type.id && styles.selectedReportTypeText,
+        ]}
+      >
+        {type.title}
+      </Text>
+    </TouchableOpacity>
   );
 
-  const renderOverviewTab = () => (
-    <ScrollView style={styles.tabContent}>
-      {/* Summary Cards */}
-      <View style={styles.summaryGrid}>
-        <Card style={[styles.summaryCard, { borderTopColor: '#6C63FF' }]}>
-          <Card.Content>
-            <View style={styles.summaryContent}>
-              <Icon name="people" size={32} color="#6C63FF" />
-              <View style={styles.summaryText}>
-                <Text style={styles.summaryValue}>{overviewData.totalScholars}</Text>
-                <Text style={styles.summaryLabel}>Total Scholars</Text>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
-
-        <Card style={[styles.summaryCard, { borderTopColor: '#4CAF50' }]}>
-          <Card.Content>
-            <View style={styles.summaryContent}>
-              <Icon name="check-circle" size={32} color="#4CAF50" />
-              <View style={styles.summaryText}>
-                <Text style={styles.summaryValue}>{overviewData.presentToday}</Text>
-                <Text style={styles.summaryLabel}>Present Today</Text>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
-
-        <Card style={[styles.summaryCard, { borderTopColor: '#FF5252' }]}>
-          <Card.Content>
-            <View style={styles.summaryContent}>
-              <Icon name="cancel" size={32} color="#FF5252" />
-              <View style={styles.summaryText}>
-                <Text style={styles.summaryValue}>{overviewData.absentToday}</Text>
-                <Text style={styles.summaryLabel}>Absent Today</Text>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
-
-        <Card style={[styles.summaryCard, { borderTopColor: '#FF9800' }]}>
-          <Card.Content>
-            <View style={styles.summaryContent}>
-              <Icon name="insights" size={32} color="#FF9800" />
-              <View style={styles.summaryText}>
-                <Text style={styles.summaryValue}>{overviewData.averageAttendance}%</Text>
-                <Text style={styles.summaryLabel}>Avg Attendance</Text>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
-      </View>
-
-      {/* Quick Stats */}
-      <Card style={styles.quickStatsCard}>
-        <Card.Title title="This Week's Performance" />
+  return (
+    <ScrollView style={styles.container}>
+      {/* Report Type Selection */}
+      <Card style={styles.card}>
+        <Card.Title title="Select Report Type" />
         <Card.Content>
-          <View style={styles.weekStats}>
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((day, index) => (
-              <View key={day} style={styles.dayColumn}>
-                <View style={[styles.dayBar, { height: `${Math.random() * 80 + 20}%` }]} />
-                <Text style={styles.dayLabel}>{day}</Text>
-              </View>
-            ))}
+          <View style={styles.reportTypeGrid}>
+            {reportTypes.map(renderReportTypeCard)}
           </View>
         </Card.Content>
       </Card>
-    </ScrollView>
-  );
 
-  const renderScholarsTab = () => (
-    <View style={styles.tabContent}>
-      <Searchbar
-        placeholder="Search scholars..."
-        onChangeText={setSearchQuery}
-        value={searchQuery}
-        style={styles.searchBar}
-      />
-      
-      <FlatList
-        data={filteredScholars}
-        keyExtractor={(item) => item.id}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        renderItem={({ item }) => (
-          <Card style={styles.scholarCard}>
-            <Card.Content>
-              <View style={styles.scholarHeader}>
-                <View style={styles.scholarInfo}>
-                  <Text style={styles.scholarName}>{item.name}</Text>
-                  <Text style={styles.scholarId}>ID: {item.scholarId}</Text>
-                </View>
-                <Chip
-                  mode="flat"
-                  style={item.presentToday ? styles.presentChip : styles.absentChip}
-                >
-                  {item.presentToday ? 'Present' : 'Absent'}
-                </Chip>
-              </View>
-              
-              <View style={styles.scholarStats}>
-                <View style={styles.scholarStat}>
-                  <Text style={styles.statLabel}>Attendance</Text>
-                  <Text style={styles.statValue}>{item.attendancePercentage}%</Text>
-                </View>
-                <View style={styles.scholarStat}>
-                  <Text style={styles.statLabel}>Total Days</Text>
-                  <Text style={styles.statValue}>{item.totalDays}</Text>
-                </View>
-                <View style={styles.scholarStat}>
-                  <Text style={styles.statLabel}>Department</Text>
-                  <Text style={styles.statValue}>{item.department || 'N/A'}</Text>
-                </View>
-              </View>
-            </Card.Content>
-          </Card>
-        )}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Icon name="search-off" size={64} color="#ccc" />
-            <Text style={styles.emptyText}>No scholars found</Text>
-          </View>
-        }
-      />
-    </View>
-  );
-
-  const renderAttendanceTab = () => (
-    <View style={styles.tabContent}>
-      {/* Date Range Filter */}
-      <Card style={styles.filterCard}>
+      {/* Date Range Selection */}
+      <Card style={styles.card}>
+        <Card.Title title="Date Range" />
         <Card.Content>
           <View style={styles.dateRangeContainer}>
             <TouchableOpacity
               style={styles.dateButton}
-              onPress={() => showDatePickerModal('start')}
+              onPress={() => setShowStartPicker(true)}
             >
-              <Icon name="calendar-today" size={20} color="#666" />
+              <Icon name="calendar" size={20} color="#6B7280" />
               <Text style={styles.dateText}>
-                {filters.startDate.toLocaleDateString()}
+                From: {dateRange.start.toLocaleDateString()}
               </Text>
             </TouchableOpacity>
-            
-            <Text style={styles.dateRangeSeparator}>to</Text>
             
             <TouchableOpacity
               style={styles.dateButton}
-              onPress={() => showDatePickerModal('end')}
+              onPress={() => setShowEndPicker(true)}
             >
-              <Icon name="calendar-today" size={20} color="#666" />
+              <Icon name="calendar" size={20} color="#6B7280" />
               <Text style={styles.dateText}>
-                {filters.endDate.toLocaleDateString()}
+                To: {dateRange.end.toLocaleDateString()}
               </Text>
             </TouchableOpacity>
-            
-            <IconButton
-              icon="filter-list"
-              size={24}
-              onPress={() => setShowFilterModal(true)}
-            />
           </View>
+
+          {showStartPicker && (
+            <DateTimePicker
+              value={dateRange.start}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowStartPicker(false);
+                if (date) {
+                  setDateRange({ ...dateRange, start: date });
+                }
+              }}
+            />
+          )}
+
+          {showEndPicker && (
+            <DateTimePicker
+              value={dateRange.end}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowEndPicker(false);
+                if (date) {
+                  setDateRange({ ...dateRange, end: date });
+                }
+              }}
+            />
+          )}
+
+          <Button
+            mode="contained"
+            onPress={generateReport}
+            loading={loading}
+            style={styles.generateButton}
+          >
+            Generate Report
+          </Button>
         </Card.Content>
       </Card>
 
-      {/* Attendance Table */}
-      <ScrollView horizontal>
-        <DataTable style={styles.dataTable}>
-          <DataTable.Header>
-            <DataTable.Title style={styles.tableColumn}>Date</DataTable.Title>
-            <DataTable.Title style={styles.tableColumn}>Scholar ID</DataTable.Title>
-            <DataTable.Title style={styles.tableColumn}>Name</DataTable.Title>
-            <DataTable.Title style={styles.tableColumn}>Time</DataTable.Title>
-            <DataTable.Title style={styles.tableColumn}>Status</DataTable.Title>
-          </DataTable.Header>
-
-          {attendanceRecords.map((record, index) => (
-            <DataTable.Row key={index}>
-              <DataTable.Cell style={styles.tableColumn}>
-                {new Date(record.date).toLocaleDateString()}
-              </DataTable.Cell>
-              <DataTable.Cell style={styles.tableColumn}>{record.scholarId}</DataTable.Cell>
-              <DataTable.Cell style={styles.tableColumn}>{record.name}</DataTable.Cell>
-              <DataTable.Cell style={styles.tableColumn}>{record.time}</DataTable.Cell>
-              <DataTable.Cell style={styles.tableColumn}>
-                <Chip
-                  mode="flat"
-                  compact
-                  style={record.status === 'present' ? styles.presentChip : styles.absentChip}
+      {/* Report Results */}
+      {reportData && (
+        <Card style={styles.card}>
+          <Card.Title
+            title="Report Results"
+            right={(props) => (
+              <View style={styles.actionButtons}>
+                <TouchableOpacity
+                  onPress={() => exportReport('pdf')}
+                  style={styles.actionButton}
                 >
-                  {record.status}
-                </Chip>
-              </DataTable.Cell>
-            </DataTable.Row>
-          ))}
-        </DataTable>
-      </ScrollView>
-    </View>
-  );
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Reports & Analytics</Text>
-        <IconButton
-          icon="download"
-          size={24}
-          onPress={() => {
-            // Export functionality
-          }}
-        />
-      </View>
-
-      {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'overview' && styles.activeTab]}
-          onPress={() => setActiveTab('overview')}
-        >
-          <Text style={[styles.tabText, activeTab === 'overview' && styles.activeTabText]}>
-            Overview
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'scholars' && styles.activeTab]}
-          onPress={() => setActiveTab('scholars')}
-        >
-          <Text style={[styles.tabText, activeTab === 'scholars' && styles.activeTabText]}>
-            Scholars
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'attendance' && styles.activeTab]}
-          onPress={() => setActiveTab('attendance')}
-        >
-          <Text style={[styles.tabText, activeTab === 'attendance' && styles.activeTabText]}>
-            Attendance
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Tab Content */}
-      {activeTab === 'overview' && renderOverviewTab()}
-      {activeTab === 'scholars' && renderScholarsTab()}
-      {activeTab === 'attendance' && renderAttendanceTab()}
-
-      {/* Date Picker Modal */}
-      <Portal>
-        <Modal
-          visible={showDateModal}
-          onDismiss={() => setShowDateModal(false)}
-          contentContainerStyle={styles.datePickerModal}
-        >
-          <Title>Select Date</Title>
-          <TextInput
-            label="Date (MM/DD/YYYY)"
-            value={tempDate.toLocaleDateString()}
-            mode="outlined"
-            style={styles.dateInput}
-            onChangeText={(text) => {
-              // Simple date parsing
-              const parts = text.split('/');
-              if (parts.length === 3) {
-                const newDate = new Date(parts[2], parts[0] - 1, parts[1]);
-                if (!isNaN(newDate.getTime())) {
-                  setTempDate(newDate);
-                }
-              }
-            }}
+                  <Icon name="file-pdf-box" size={24} color="#DC2626" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => exportReport('excel')}
+                  style={styles.actionButton}
+                >
+                  <Icon name="file-excel" size={24} color="#059669" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={shareReport}
+                  style={styles.actionButton}
+                >
+                  <Icon name="share-variant" size={24} color="#1E3A8A" />
+                </TouchableOpacity>
+              </View>
+            )}
           />
-          <View style={styles.dateModalButtons}>
-            <Button onPress={() => setShowDateModal(false)}>Cancel</Button>
-            <Button onPress={() => handleDateChange(tempDate)}>OK</Button>
-          </View>
-        </Modal>
-      </Portal>
+          <Card.Content>
+            {/* Report Summary */}
+            <View style={styles.summarySection}>
+              <Text style={styles.summaryTitle}>Summary</Text>
+              <View style={styles.summaryGrid}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryValue}>
+                    {reportData.summary?.totalScholars || 0}
+                  </Text>
+                  <Text style={styles.summaryLabel}>Total Scholars</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryValue}>
+                    {reportData.summary?.averageAttendance || 0}%
+                  </Text>
+                  <Text style={styles.summaryLabel}>Avg Attendance</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryValue}>
+                    {reportData.summary?.totalDays || 0}
+                  </Text>
+                  <Text style={styles.summaryLabel}>Total Days</Text>
+                </View>
+              </View>
+            </View>
 
-      {/* Filter Modal */}
-      <Portal>
-        <Modal
-          visible={showFilterModal}
-          onDismiss={() => setShowFilterModal(false)}
-          contentContainerStyle={styles.filterModal}
-        >
-          <Title>Filter Options</Title>
-          
-          <Text style={styles.filterLabel}>Department</Text>
-          <RadioButton.Group
-            onValueChange={(value) => setFilters({ ...filters, department: value })}
-            value={filters.department}
-          >
-            <RadioButton.Item label="All Departments" value="all" />
-            <RadioButton.Item label="Computer Science" value="cs" />
-            <RadioButton.Item label="Engineering" value="eng" />
-            <RadioButton.Item label="Business" value="bus" />
-          </RadioButton.Group>
-          
-          <Text style={styles.filterLabel}>Status</Text>
-          <RadioButton.Group
-            onValueChange={(value) => setFilters({ ...filters, status: value })}
-            value={filters.status}
-          >
-            <RadioButton.Item label="All" value="all" />
-            <RadioButton.Item label="Present Only" value="present" />
-            <RadioButton.Item label="Absent Only" value="absent" />
-          </RadioButton.Group>
-          
-          <Button
-            mode="contained"
-            onPress={() => {
-              setShowFilterModal(false);
-              loadReportData();
-            }}
-            style={styles.applyFilterButton}
-          >
-            Apply Filters
-          </Button>
-        </Modal>
-      </Portal>
+            <Divider style={styles.divider} />
 
-      {/* FAB for Export */}
-      <FAB
-        icon="file-download"
-        style={styles.fab}
-        onPress={() => {
-          // Export report functionality
-        }}
-      />
-    </SafeAreaView>
+            {/* Detailed Data */}
+            <Searchbar
+              placeholder="Search in report..."
+              onChangeText={setSearchQuery}
+              value={searchQuery}
+              style={styles.searchBar}
+            />
+
+            {reportData.details && (
+              <DataTable>
+                <DataTable.Header>
+                  <DataTable.Title>Scholar</DataTable.Title>
+                  <DataTable.Title numeric>Present</DataTable.Title>
+                  <DataTable.Title numeric>Absent</DataTable.Title>
+                  <DataTable.Title numeric>%</DataTable.Title>
+                </DataTable.Header>
+
+                {reportData.details
+                  .filter(item =>
+                    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map((item, index) => (
+                    <DataTable.Row key={index}>
+                      <DataTable.Cell>{item.name}</DataTable.Cell>
+                      <DataTable.Cell numeric>{item.present}</DataTable.Cell>
+                      <DataTable.Cell numeric>{item.absent}</DataTable.Cell>
+                      <DataTable.Cell numeric>
+                        {item.percentage}%
+                      </DataTable.Cell>
+                    </DataTable.Row>
+                  ))}
+              </DataTable>
+            )}
+          </Card.Content>
+        </Card>
+      )}
+    </ScrollView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F3F4F6',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: 'white',
-    elevation: 2,
+  card: {
+    margin: 16,
+    elevation: 4,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-    elevation: 1,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  activeTab: {
-    borderBottomWidth: 3,
-    borderBottomColor: '#6C63FF',
-  },
-  tabText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  activeTabText: {
-    color: '#6C63FF',
-    fontWeight: '600',
-  },
-  tabContent: {
-    flex: 1,
-  },
-  summaryGrid: {
+  reportTypeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 16,
     justifyContent: 'space-between',
   },
-  summaryCard: {
+  reportTypeCard: {
     width: '48%',
-    marginBottom: 16,
-    borderTopWidth: 4,
-    elevation: 2,
-  },
-  summaryContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  summaryText: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  summaryValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-  },
-  quickStatsCard: {
-    margin: 16,
-    elevation: 2,
-  },
-  weekStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'flex-end',
-    height: 120,
-    paddingTop: 16,
-  },
-  dayColumn: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  dayBar: {
-    width: '60%',
-    backgroundColor: '#6C63FF',
-    borderRadius: 4,
-    marginBottom: 8,
-  },
-  dayLabel: {
-    fontSize: 12,
-    color: '#666',
-  },
-  searchBar: {
-    margin: 16,
-    elevation: 2,
-  },
-  scholarCard: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    elevation: 2,
-  },
-  scholarHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
     alignItems: 'center',
     marginBottom: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  scholarInfo: {
-    flex: 1,
+  selectedReportType: {
+    backgroundColor: '#1E3A8A',
+    borderColor: '#1E3A8A',
   },
-  scholarName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  scholarId: {
+  reportTypeText: {
+    marginTop: 8,
     fontSize: 14,
-    color: '#666',
-    marginTop: 2,
+    color: '#1F2937',
+    textAlign: 'center',
   },
-  presentChip: {
-    backgroundColor: '#E8F5E9',
-  },
-  absentChip: {
-    backgroundColor: '#FFEBEE',
-  },
-  scholarStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-  },
-  scholarStat: {
-    alignItems: 'center',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 2,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 64,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 16,
-  },
-  filterCard: {
-    margin: 16,
-    elevation: 2,
+  selectedReportTypeText: {
+    color: '#FFFFFF',
   },
   dateRangeContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
   dateButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#F9FAFB',
     padding: 12,
-    backgroundColor: '#f5f5f5',
     borderRadius: 8,
-    flex: 1,
+    flex: 0.48,
   },
   dateText: {
     marginLeft: 8,
     fontSize: 14,
-    color: '#333',
+    color: '#1F2937',
   },
-  dateRangeSeparator: {
-    marginHorizontal: 12,
-    color: '#666',
+  generateButton: {
+    marginTop: 8,
   },
-  dataTable: {
-    backgroundColor: 'white',
-    margin: 16,
+  actionButtons: {
+    flexDirection: 'row',
+    paddingRight: 8,
   },
-  tableColumn: {
-    minWidth: 100,
+  actionButton: {
+    marginLeft: 12,
   },
-  filterModal: {
-    backgroundColor: 'white',
-    padding: 20,
-    margin: 20,
-    borderRadius: 8,
+  summarySection: {
+    marginBottom: 16,
   },
-  filterLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 8,
-    color: '#333',
+  summaryTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#1F2937',
   },
-  applyFilterButton: {
-    marginTop: 24,
-    backgroundColor: '#6C63FF',
+  summaryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
   },
-  datePickerModal: {
-    backgroundColor: 'white',
-    padding: 20,
-    margin: 20,
-    borderRadius: 8,
+  summaryItem: {
+    alignItems: 'center',
   },
-  dateInput: {
+  summaryValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1E3A8A',
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  divider: {
     marginVertical: 16,
   },
-  dateModalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 16,
-  },
-  fab: {
-    position: 'absolute',
-    margin: 16,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#6C63FF',
+  searchBar: {
+    marginBottom: 16,
+    elevation: 0,
+    backgroundColor: '#F9FAFB',
   },
 });
-
-export default ReportsScreen;

@@ -41,15 +41,15 @@ export const pickImageFromLibrary = async (options = {}) => {
         'Please allow access to your photo library to select images.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Settings', onPress: () => ImagePicker.openSettings() }
+          { text: 'OK' }
         ]
       );
       return null;
     }
 
-    // Launch image picker with updated API
+    // Launch image picker - using the correct format for current Expo version
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.Images, // Updated from MediaTypeOptions
+      mediaTypes: 'Images', // Simple string format for compatibility
       ...DEFAULT_OPTIONS,
       ...options,
     });
@@ -78,15 +78,15 @@ export const takePhotoWithCamera = async (options = {}) => {
         'Please allow access to your camera to take photos.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Settings', onPress: () => ImagePicker.openSettings() }
+          { text: 'OK' }
         ]
       );
       return null;
     }
 
-    // Launch camera with updated API
+    // Launch camera - using the correct format
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaType.Images, // Updated from MediaTypeOptions
+      mediaTypes: 'Images', // Simple string format for compatibility
       ...DEFAULT_OPTIONS,
       ...options,
     });
@@ -123,6 +123,34 @@ export const showImagePickerOptions = async (options = {}) => {
       { cancelable: true }
     );
   });
+};
+
+// Alternative simple picker for direct use in components
+export const pickImage = async () => {
+  try {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (!permissionResult.granted) {
+      Alert.alert('Permission Required', 'Please allow camera access to add profile photo');
+      return null;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      return result.assets[0].uri;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Image picker error:', error);
+    Alert.alert('Error', 'Failed to pick image');
+    return null;
+  }
 };
 
 // Validate image
@@ -184,6 +212,7 @@ export default {
   pickImageFromLibrary,
   takePhotoWithCamera,
   showImagePickerOptions,
+  pickImage,
   validateImage,
   convertImageToBase64,
   getImageInfo,

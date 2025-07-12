@@ -1,10 +1,12 @@
-// mobile/PramaanExpo/src/contexts/AuthContext.js
+// src/contexts/AuthContext.js
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authService } from '../services/api';
 
-const AuthContext = createContext({});
+// Create the context
+export const AuthContext = createContext({});
 
+// Custom hook to use auth context
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -13,6 +15,7 @@ export const useAuth = () => {
   return context;
 };
 
+// Provider component
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [userType, setUserType] = useState(null);
@@ -40,18 +43,12 @@ export const AuthProvider = ({ children }) => {
       });
 
       if (token && userData) {
-        try {
-          const parsedUser = JSON.parse(userData);
-          setUser(parsedUser);
-          setUserType(savedUserType);
-          console.log('User authenticated from storage');
-        } catch (parseError) {
-          console.error('Error parsing user data:', parseError);
-          // Clear corrupted data
-          await AsyncStorage.multiRemove(['authToken', 'userData', 'userType']);
-        }
+        const parsedUserData = JSON.parse(userData);
+        setUser(parsedUserData);
+        setUserType(savedUserType || parsedUserData.userType || 'admin');
+        console.log('User authenticated from storage');
       } else {
-        console.log('User is not authenticated');
+        console.log('No stored authentication found');
       }
     } catch (error) {
       console.error('Error checking auth status:', error);
@@ -65,76 +62,42 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       setError(null);
 
-      console.log('Login attempt:', {
-        email,
-        passwordLength: password?.length,
-        userType: type,
-        hasOrgCode: organizationCode ? 'Yes' : 'N/A'
-      });
+      console.log('AuthContext: Starting login for type:', type);
 
       let response;
-      
       if (type === 'admin') {
         response = await authService.adminLogin(email, password);
       } else if (type === 'scholar') {
-        if (!organizationCode) {
-          throw new Error('Organization code is required for scholar login');
-        }
         response = await authService.scholarLogin(email, password, organizationCode);
       } else {
         throw new Error('Invalid user type');
       }
 
-      console.log('Login response:', response);
+      console.log('AuthContext: Login response:', response);
 
-      if (response && response.success) {
-        // Extract user data from response
-        const userData = response.user || response.admin || response.scholar;
-        
-        if (!userData) {
-          throw new Error('No user data in response');
-        }
-
-        // Ensure userType is set properly
-        const finalUserType = userData.userType || userData.role || type;
-        userData.userType = finalUserType;
-
-        console.log('Login successful, user type:', finalUserType);
-
-        // Store auth data - only store defined values
-        const storagePromises = [];
-        
+      if (response && (response.success || response.token)) {
+        // Store auth data
         if (response.token) {
-          storagePromises.push(AsyncStorage.setItem('authToken', response.token));
+          await AsyncStorage.setItem('authToken', response.token);
         }
         
-        storagePromises.push(AsyncStorage.setItem('userData', JSON.stringify(userData)));
-        storagePromises.push(AsyncStorage.setItem('userType', finalUserType));
-        
-        if (organizationCode) {
-          storagePromises.push(AsyncStorage.setItem('organizationCode', organizationCode));
-        } else if (response.organization?.code) {
-          storagePromises.push(AsyncStorage.setItem('organizationCode', response.organization.code));
+        const userData = response.user || response.admin || response.scholar;
+        if (userData) {
+          await AsyncStorage.setItem('userData', JSON.stringify(userData));
+          await AsyncStorage.setItem('userType', userData.userType || type);
+          
+          setUser(userData);
+          setUserType(userData.userType || type);
         }
 
-        await Promise.all(storagePromises);
-
-        // Update state
-        setUser(userData);
-        setUserType(finalUserType);
-        
-        console.log('User data stored:', userData);
-        console.log('Login successful');
-        
         return { success: true };
       } else {
         const errorMsg = response?.error || response?.message || 'Login failed';
-        console.error('Login failed:', errorMsg);
         setError(errorMsg);
         return { success: false, error: errorMsg };
       }
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('AuthContext: Login error:', error);
       const errorMessage = error.response?.data?.error || error.message || 'Login failed. Please try again.';
       setError(errorMessage);
       return { success: false, error: errorMessage };
@@ -160,7 +123,7 @@ export const AuthProvider = ({ children }) => {
       setUserType(null);
       setError(null);
       
-      console.log('Logout successful');
+      console.log('AuthContext: Logout successful');
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
@@ -168,19 +131,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const updateUser = async (userData) => {
-    try {
-      if (!userData) {
-        console.error('Cannot update user with null/undefined data');
-        return;
-      }
-      
-      setUser(userData);
-      await AsyncStorage.setItem('userData', JSON.stringify(userData));
-      console.log('User data updated');
-    } catch (error) {
-      console.error('Error updating user:', error);
-    }
+  const updateUser = (userData) => {
+    setUser(userData);
+    AsyncStorage.setItem('userData', JSON.stringify(userData));
   };
 
   const value = {
@@ -199,3 +152,6 @@ export const AuthProvider = ({ children }) => {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
+
+// Default export for backwards compatibility
+export default AuthContext;

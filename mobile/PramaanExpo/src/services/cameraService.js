@@ -1,10 +1,9 @@
 // mobile/PramaanExpo/src/services/cameraService.js
 import * as ImagePicker from 'expo-image-picker';
-import * as Camera from 'expo-camera';
 
 class CameraService {
   async requestPermissions() {
-    const cameraResult = await Camera.requestCameraPermissionsAsync();
+    const cameraResult = await ImagePicker.requestCameraPermissionsAsync();
     const mediaLibraryResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     return {
@@ -22,7 +21,7 @@ class CameraService {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: 'images',
         allowsEditing: options.allowsEditing ?? true,
         aspect: options.aspect ?? [1, 1],
         quality: options.quality ?? 0.8,
@@ -52,7 +51,7 @@ class CameraService {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: 'images',
         allowsEditing: options.allowsEditing ?? true,
         aspect: options.aspect ?? [1, 1],
         quality: options.quality ?? 0.8,

@@ -2,6 +2,7 @@
 import Scholar from '../models/Scholar.js';
 import Attendance from '../models/AttendanceProof.js';
 import Organization from '../models/Organization.js';
+import bcrypt from 'bcryptjs';
 import logger from '../utils/logger.js';
 
 export class AdminController {
@@ -117,7 +118,7 @@ export class AdminController {
       }
 
       const scholars = await Scholar.find(query)
-        .select('-biometricData')
+        .select('-biometricData -credentials.passwordHash')
         .sort({ createdAt: -1 })
         .limit(limit * 1)
         .skip((page - 1) * limit);
@@ -142,7 +143,7 @@ export class AdminController {
     }
   }
 
-  // Add new scholar
+  // Add new scholar - FIXED WITH PASSWORD HASHING
   async addScholar(req, res) {
     try {
       const organizationId = req.user.organizationId;
@@ -172,12 +173,25 @@ export class AdminController {
         });
       }
 
+      // Hash the password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(req.body.password, salt);
+
+      // Create scholar data with hashed password
       const scholarData = {
-        ...req.body,
+        scholarId: req.body.scholarId,
         organizationId,
+        personalInfo: req.body.personalInfo,
+        academicInfo: req.body.academicInfo,
+        guardianInfo: req.body.guardianInfo,
+        biometricData: req.body.biometricData,
         status: 'active',
         credentials: {
-          password: req.body.password || 'defaultPassword123' // You should hash this
+          passwordHash: hashedPassword,
+          passwordChangedAt: new Date()
+        },
+        flags: {
+          requirePasswordChange: true // Force password change on first login
         }
       };
 
@@ -254,6 +268,12 @@ export class AdminController {
     try {
       const { id } = req.params;
       const organizationId = req.user.organizationId;
+
+      // Remove sensitive fields from update
+      delete req.body.credentials;
+      delete req.body.scholarId;
+      delete req.body.organizationId;
+      delete req.body.biometricData;
 
       const scholar = await Scholar.findOneAndUpdate(
         { _id: id, organizationId },

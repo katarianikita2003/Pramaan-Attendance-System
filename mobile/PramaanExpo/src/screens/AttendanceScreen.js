@@ -1,776 +1,417 @@
-// src/screens/AttendanceScreen.js - Biometric Attendance Marking
-import React, { useState, useEffect, useRef } from 'react';
+// mobile/PramaanExpo/src/screens/AttendanceScreen.js
+import React, { useState, useEffect } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   ScrollView,
+  TouchableOpacity,
   Alert,
-  Animated,
-  Dimensions,
-  Platform,
+  ActivityIndicator,
+  Modal,
+  TextInput,
 } from 'react-native';
 import {
   Card,
   Button,
-  Text,
-  ActivityIndicator,
-  ProgressBar,
-  Portal,
-  Modal,
-  Surface,
-  IconButton,
+  Searchbar,
+  DataTable,
+  FAB,
+  Chip,
+  // Remove Portal and Dialog imports
 } from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useAuth } from '../contexts/AuthContext';
-import { useLocation } from '../contexts/LocationContext';
-import biometricService from '../services/biometricService';
-import zkpService from '../services/zkpService';
-import { attendanceService } from '../services/api';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { api } from '../services/api';
+import FaceCaptureModal from '../components/FaceCaptureModal';
 
-const { width, height } = Dimensions.get('window');
-
-const AttendanceScreen = ({ navigation }) => {
-  const { user, organization } = useAuth();
-  const { 
-    currentLocation, 
-    isWithinBounds, 
-    verifyLocationForAttendance,
-    organizationBounds,
-  } = useLocation();
-
-  const [isLoading, setIsLoading] = useState(false);
-  const [attendanceStatus, setAttendanceStatus] = useState('ready'); // ready, processing, success, error
-  const [currentStep, setCurrentStep] = useState(0);
-  const [totalSteps] = useState(5);
-  const [statusMessage, setStatusMessage] = useState('Ready to mark attendance');
-  const [showLocationModal, setShowLocationModal] = useState(false);
-  const [showBiometricModal, setShowBiometricModal] = useState(false);
-  const [attendanceData, setAttendanceData] = useState(null);
-  const [lastAttendance, setLastAttendance] = useState(null);
-
-  // Animation values
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+export default function AttendanceScreen({ navigation }) {
+  const [scholars, setScholars] = useState([]);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [selectedScholar, setSelectedScholar] = useState(null);
+  const [showCaptureModal, setShowCaptureModal] = useState(false);
+  const [captureMode, setCaptureMode] = useState('checkin');
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualId, setManualId] = useState('');
 
   useEffect(() => {
-    initializeScreen();
-    startPulseAnimation();
+    fetchScholars();
+    fetchTodayAttendance();
   }, []);
 
-  useEffect(() => {
-    if (currentStep > 0) {
-      Animated.timing(progressAnim, {
-        toValue: currentStep / totalSteps,
-        duration: 500,
-        useNativeDriver: false,
-      }).start();
-    }
-  }, [currentStep]);
-
-  const initializeScreen = async () => {
+  const fetchScholars = async () => {
     try {
-      // Get last attendance record
-      const lastRecord = await getLastAttendanceRecord();
-      setLastAttendance(lastRecord);
-
-      // Check biometric enrollment
-      const enrolled = await biometricService.isBiometricEnrolled();
-      if (!enrolled) {
-        Alert.alert(
-          'Biometric Not Enrolled',
-          'Please complete biometric enrollment before marking attendance.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Enroll Now', 
-              onPress: () => navigation.navigate('BiometricEnrollment'),
-            },
-          ]
-        );
-      }
+      const response = await api.get('/scholars');
+      setScholars(response.data);
     } catch (error) {
-      console.error('Error initializing screen:', error);
+      Alert.alert('Error', 'Failed to fetch scholars');
     }
   };
 
-  const startPulseAnimation = () => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
+  const fetchTodayAttendance = async () => {
+    setLoading(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await api.get(`/attendance?date=${today}`);
+      setAttendanceRecords(response.data);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to fetch attendance records');
+    }
+    setLoading(false);
   };
 
-  const getLastAttendanceRecord = async () => {
+  const handleCheckIn = (scholar) => {
+    setSelectedScholar(scholar);
+    setCaptureMode('checkin');
+    setShowCaptureModal(true);
+  };
+
+  const handleCheckOut = (scholar) => {
+    setSelectedScholar(scholar);
+    setCaptureMode('checkout');
+    setShowCaptureModal(true);
+  };
+
+  const handleCapture = async (imageData) => {
+    setShowCaptureModal(false);
+    setLoading(true);
+
     try {
-      const response = await attendanceService.getAttendanceHistory({
-        limit: 1,
-        page: 1,
+      const endpoint = captureMode === 'checkin' ? '/attendance/checkin' : '/attendance/checkout';
+      
+      await api.post(endpoint, {
+        scholarId: selectedScholar.id,
+        timestamp: new Date().toISOString(),
+        biometricData: imageData.base64,
+        location: {
+          latitude: 0, // Add actual location if needed
+          longitude: 0
+        }
       });
 
-      if (response.success && response.data.records.length > 0) {
-        return response.data.records[0];
-      }
-      return null;
+      Alert.alert(
+        'Success',
+        `${captureMode === 'checkin' ? 'Check-in' : 'Check-out'} recorded successfully`
+      );
+      
+      fetchTodayAttendance();
     } catch (error) {
-      console.error('Error getting last attendance:', error);
-      return null;
+      Alert.alert('Error', `Failed to record ${captureMode}`);
     }
+    
+    setLoading(false);
   };
 
-  const handleMarkAttendance = async () => {
+  const handleManualEntry = () => {
+    setShowManualModal(true);
+  };
+
+  const submitManualEntry = async () => {
+    if (!manualId.trim()) {
+      Alert.alert('Error', 'Please enter a scholar ID');
+      return;
+    }
+
+    setShowManualModal(false);
+    setLoading(true);
+
     try {
-      setIsLoading(true);
-      setAttendanceStatus('processing');
-      setCurrentStep(0);
-      setStatusMessage('Starting attendance process...');
-
-      // Step 1: Verify location
-      setCurrentStep(1);
-      setStatusMessage('Verifying location...');
-      
-      const locationResult = await verifyLocationForAttendance();
-      if (!locationResult.success) {
-        throw new Error(locationResult.error);
+      const scholar = scholars.find(s => s.id === manualId);
+      if (!scholar) {
+        Alert.alert('Error', 'Scholar not found');
+        setLoading(false);
+        return;
       }
 
-      // Step 2: Check enrollment
-      setCurrentStep(2);
-      setStatusMessage('Checking biometric enrollment...');
-      
-      const enrolled = await biometricService.isBiometricEnrolled();
-      if (!enrolled) {
-        throw new Error('Biometric not enrolled. Please complete enrollment first.');
-      }
-
-      // Step 3: Biometric authentication
-      setCurrentStep(3);
-      setStatusMessage('Authenticating biometric...');
-      setShowBiometricModal(true);
-      
-      const authResult = await biometricService.authenticateForAttendance();
-      setShowBiometricModal(false);
-      
-      if (!authResult.success) {
-        throw new Error(authResult.error);
-      }
-
-      // Step 4: Generate ZKP proof
-      setCurrentStep(4);
-      setStatusMessage('Generating cryptographic proof...');
-      
-      const proofResult = await zkpService.generateAttendanceProof({
-        biometricData: authResult.proof,
-        timestamp: Date.now(),
-        location: locationResult.location,
-        locationHash: await generateLocationHash(locationResult.location),
-        authMethod: authResult.authMethod,
-        quality: authResult.proof?.quality || 0.9,
+      await api.post('/attendance/manual', {
+        scholarId: manualId,
+        timestamp: new Date().toISOString(),
+        reason: 'Manual entry'
       });
 
-      if (!proofResult.success) {
-        throw new Error('Failed to generate attendance proof');
-      }
-
-      // Step 5: Submit attendance
-      setCurrentStep(5);
-      setStatusMessage('Submitting attendance...');
-      
-      const attendanceSubmission = {
-        timestamp: Date.now(),
-        location: locationResult.location,
-        distance: locationResult.distance,
-        proof: proofResult.proof,
-        authMethod: authResult.authMethod,
-        metadata: {
-          deviceInfo: Platform.OS,
-          appVersion: '1.0.0',
-          locationAccuracy: locationResult.location.accuracy,
-        },
-      };
-
-      const submitResult = await attendanceService.markAttendance(attendanceSubmission);
-      
-      if (submitResult.success) {
-        setAttendanceStatus('success');
-        setStatusMessage('Attendance marked successfully!');
-        setAttendanceData({
-          ...submitResult.data,
-          proof: proofResult.proof,
-        });
-        
-        // Update last attendance
-        setLastAttendance(submitResult.data);
-        
-        // Show success animation
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }).start(() => {
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }).start();
-        });
-      } else {
-        throw new Error(submitResult.error);
-      }
+      Alert.alert('Success', 'Manual attendance recorded');
+      setManualId('');
+      fetchTodayAttendance();
     } catch (error) {
-      console.error('Attendance marking error:', error);
-      setAttendanceStatus('error');
-      setStatusMessage(error.message);
-      Alert.alert('Attendance Error', error.message);
-    } finally {
-      setIsLoading(false);
-      // Reset after 3 seconds
-      setTimeout(() => {
-        setAttendanceStatus('ready');
-        setCurrentStep(0);
-        setStatusMessage('Ready to mark attendance');
-        progressAnim.setValue(0);
-      }, 3000);
+      Alert.alert('Error', 'Failed to record manual attendance');
     }
+    
+    setLoading(false);
   };
 
-  const generateLocationHash = async (location) => {
-    const locationString = `${location.latitude.toFixed(6)},${location.longitude.toFixed(6)}`;
-    return await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      locationString
-    );
+  const getAttendanceStatus = (scholarId) => {
+    const record = attendanceRecords.find(r => r.scholarId === scholarId);
+    if (!record) return 'absent';
+    if (record.checkOut) return 'completed';
+    return 'checkedIn';
   };
 
-  const handleDownloadProof = () => {
-    if (attendanceData?.attendanceId) {
-      navigation.navigate('ProofDownload', {
-        attendanceId: attendanceData.attendanceId,
-        proof: attendanceData.proof,
-      });
-    }
-  };
-
-  const handleViewHistory = () => {
-    navigation.navigate('History');
-  };
-
-  const getStatusColor = () => {
-    switch (attendanceStatus) {
-      case 'processing':
-        return '#FF9800';
-      case 'success':
-        return '#4CAF50';
-      case 'error':
-        return '#F44336';
-      default:
-        return '#6C63FF';
-    }
-  };
-
-  const getStatusIcon = () => {
-    switch (attendanceStatus) {
-      case 'processing':
-        return 'hourglass-empty';
-      case 'success':
-        return 'check-circle';
-      case 'error':
-        return 'error';
-      default:
-        return 'fingerprint';
-    }
-  };
-
-  const renderLocationStatus = () => (
-    <Card style={styles.statusCard}>
-      <Card.Content>
-        <View style={styles.statusHeader}>
-          <Icon
-            name="location-on"
-            size={24}
-            color={isWithinBounds ? '#4CAF50' : '#F44336'}
-          />
-          <Text style={styles.statusTitle}>Location Status</Text>
-        </View>
-        
-        <Text style={[
-          styles.statusText,
-          { color: isWithinBounds ? '#4CAF50' : '#F44336' }
-        ]}>
-          {isWithinBounds 
-            ? 'Within campus boundaries' 
-            : 'Outside campus boundaries'
-          }
-        </Text>
-        
-        {currentLocation && (
-          <Text style={styles.locationDetails}>
-            Accuracy: {Math.round(currentLocation.accuracy)}m
-          </Text>
-        )}
-        
-        {!isWithinBounds && (
-          <Button
-            mode="outlined"
-            onPress={() => setShowLocationModal(true)}
-            style={styles.statusButton}
-          >
-            View Location Details
-          </Button>
-        )}
-      </Card.Content>
-    </Card>
+  const filteredScholars = scholars.filter(scholar =>
+    scholar.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    scholar.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const renderLastAttendance = () => {
-    if (!lastAttendance) return null;
-
-    const date = new Date(lastAttendance.timestamp);
-    const isToday = date.toDateString() === new Date().toDateString();
-
-    return (
-      <Card style={styles.lastAttendanceCard}>
-        <Card.Content>
-          <View style={styles.statusHeader}>
-            <Icon name="history" size={24} color="#666" />
-            <Text style={styles.statusTitle}>Last Attendance</Text>
-          </View>
-          
-          <Text style={styles.lastAttendanceTime}>
-            {isToday 
-              ? `Today at ${date.toLocaleTimeString()}`
-              : date.toLocaleString()
-            }
-          </Text>
-          
-          <Text style={styles.lastAttendanceStatus}>
-            Status: {lastAttendance.status || 'Verified'}
-          </Text>
-        </Card.Content>
-      </Card>
-    );
-  };
-
-  const renderAttendanceButton = () => (
-    <Animated.View style={[
-      styles.attendanceButtonContainer,
-      { transform: [{ scale: pulseAnim }] }
-    ]}>
-      <Surface style={[
-        styles.attendanceButton,
-        { backgroundColor: getStatusColor() }
-      ]}>
-        <Button
-          mode="contained"
-          onPress={handleMarkAttendance}
-          disabled={isLoading || !isWithinBounds}
-          style={styles.attendanceButtonInner}
-          contentStyle={styles.attendanceButtonContent}
-          labelStyle={styles.attendanceButtonLabel}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="white" size="large" />
-          ) : (
-            <>
-              <Icon name={getStatusIcon()} size={32} color="white" />
-              <Text style={styles.attendanceButtonText}>
-                {attendanceStatus === 'ready' ? 'Mark Attendance' : statusMessage}
-              </Text>
-            </>
-          )}
-        </Button>
-      </Surface>
-    </Animated.View>
-  );
-
-  const renderProgress = () => {
-    if (currentStep === 0) return null;
-
-    return (
-      <Card style={styles.progressCard}>
-        <Card.Content>
-          <Text style={styles.progressTitle}>Progress</Text>
-          <ProgressBar
-            progress={currentStep / totalSteps}
-            color="#6C63FF"
-            style={styles.progressBar}
-          />
-          <Text style={styles.progressText}>
-            Step {currentStep} of {totalSteps}: {statusMessage}
-          </Text>
-        </Card.Content>
-      </Card>
-    );
-  };
-
-  const renderSuccessActions = () => {
-    if (attendanceStatus !== 'success') return null;
-
-    return (
-      <Card style={styles.successCard}>
-        <Card.Content>
-          <View style={styles.successHeader}>
-            <Icon name="check-circle" size={48} color="#4CAF50" />
-            <Text style={styles.successTitle}>Attendance Marked!</Text>
-          </View>
-          
-          <Text style={styles.successMessage}>
-            Your attendance has been recorded with cryptographic proof.
-          </Text>
-          
-          <View style={styles.successActions}>
-            <Button
-              mode="outlined"
-              onPress={handleDownloadProof}
-              style={styles.successButton}
-              icon="download"
-            >
-              Download Proof
-            </Button>
-            
-            <Button
-              mode="outlined"
-              onPress={handleViewHistory}
-              style={styles.successButton}
-              icon="history"
-            >
-              View History
-            </Button>
-          </View>
-        </Card.Content>
-      </Card>
-    );
-  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Mark Attendance</Text>
-          <Text style={styles.headerSubtitle}>
-            Secure biometric attendance marking
-          </Text>
-        </View>
-
-        {/* Location Status */}
-        {renderLocationStatus()}
-
-        {/* Last Attendance */}
-        {renderLastAttendance()}
-
-        {/* Progress */}
-        {renderProgress()}
-
-        {/* Attendance Button */}
-        <Animated.View style={{ opacity: fadeAnim }}>
-          {renderAttendanceButton()}
-        </Animated.View>
-
-        {/* Success Actions */}
-        {renderSuccessActions()}
-
-        {/* Quick Actions */}
-        <Card style={styles.quickActionsCard}>
+    <View style={styles.container}>
+      <ScrollView>
+        <Card style={styles.summaryCard}>
           <Card.Content>
-            <Text style={styles.quickActionsTitle}>Quick Actions</Text>
-            
-            <View style={styles.quickActions}>
-              <Button
-                mode="outlined"
-                onPress={() => navigation.navigate('History')}
-                style={styles.quickActionButton}
-                icon="history"
-              >
-                History
-              </Button>
-              
-              <Button
-                mode="outlined"
-                onPress={() => navigation.navigate('Profile')}
-                style={styles.quickActionButton}
-                icon="person"
-              >
-                Profile
-              </Button>
+            <Text style={styles.summaryTitle}>Today's Summary</Text>
+            <View style={styles.summaryStats}>
+              <View style={styles.statItem}>
+                <Icon name="account-check" size={24} color="#10B981" />
+                <Text style={styles.statValue}>{attendanceRecords.length}</Text>
+                <Text style={styles.statLabel}>Present</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Icon name="account-remove" size={24} color="#EF4444" />
+                <Text style={styles.statValue}>
+                  {scholars.length - attendanceRecords.length}
+                </Text>
+                <Text style={styles.statLabel}>Absent</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Icon name="clock-alert" size={24} color="#F59E0B" />
+                <Text style={styles.statValue}>
+                  {attendanceRecords.filter(r => r.isLate).length}
+                </Text>
+                <Text style={styles.statLabel}>Late</Text>
+              </View>
             </View>
           </Card.Content>
         </Card>
+
+        <Searchbar
+          placeholder="Search scholars..."
+          onChangeText={setSearchQuery}
+          value={searchQuery}
+          style={styles.searchBar}
+        />
+
+        {loading ? (
+          <ActivityIndicator size="large" style={styles.loader} />
+        ) : (
+          <Card style={styles.listCard}>
+            <DataTable>
+              <DataTable.Header>
+                <DataTable.Title>Scholar</DataTable.Title>
+                <DataTable.Title>Status</DataTable.Title>
+                <DataTable.Title>Actions</DataTable.Title>
+              </DataTable.Header>
+
+              {filteredScholars.map((scholar) => {
+                const status = getAttendanceStatus(scholar.id);
+                return (
+                  <DataTable.Row key={scholar.id}>
+                    <DataTable.Cell>
+                      <View>
+                        <Text style={styles.scholarName}>{scholar.name}</Text>
+                        <Text style={styles.scholarId}>{scholar.id}</Text>
+                      </View>
+                    </DataTable.Cell>
+                    <DataTable.Cell>
+                      <Chip
+                        style={[
+                          styles.statusChip,
+                          status === 'completed' && styles.completedChip,
+                          status === 'checkedIn' && styles.checkedInChip,
+                          status === 'absent' && styles.absentChip,
+                        ]}
+                      >
+                        {status === 'completed' && 'Completed'}
+                        {status === 'checkedIn' && 'Checked In'}
+                        {status === 'absent' && 'Absent'}
+                      </Chip>
+                    </DataTable.Cell>
+                    <DataTable.Cell>
+                      {status === 'absent' && (
+                        <TouchableOpacity
+                          onPress={() => handleCheckIn(scholar)}
+                          style={styles.actionButton}
+                        >
+                          <Icon name="login" size={20} color="#1E3A8A" />
+                        </TouchableOpacity>
+                      )}
+                      {status === 'checkedIn' && (
+                        <TouchableOpacity
+                          onPress={() => handleCheckOut(scholar)}
+                          style={styles.actionButton}
+                        >
+                          <Icon name="logout" size={20} color="#F59E0B" />
+                        </TouchableOpacity>
+                      )}
+                    </DataTable.Cell>
+                  </DataTable.Row>
+                );
+              })}
+            </DataTable>
+          </Card>
+        )}
       </ScrollView>
 
-      {/* Location Modal */}
-      <Portal>
-        <Modal
-          visible={showLocationModal}
-          onDismiss={() => setShowLocationModal(false)}
-          contentContainerStyle={styles.modalContainer}
-        >
-          <Card>
-            <Card.Title
-              title="Location Details"
-              subtitle="Current location information"
-              left={(props) => <Icon {...props} name="location-on" />}
-              right={(props) => (
-                <IconButton
-                  {...props}
-                  icon="close"
-                  onPress={() => setShowLocationModal(false)}
-                />
-              )}
-            />
-            <Card.Content>
-              {currentLocation ? (
-                <>
-                  <Text style={styles.modalText}>
-                    Latitude: {currentLocation.latitude.toFixed(6)}
-                  </Text>
-                  <Text style={styles.modalText}>
-                    Longitude: {currentLocation.longitude.toFixed(6)}
-                  </Text>
-                  <Text style={styles.modalText}>
-                    Accuracy: {Math.round(currentLocation.accuracy)}m
-                  </Text>
-                  {organizationBounds && (
-                    <>
-                      <Text style={styles.modalText}>
-                        Campus Center: {organizationBounds.center.latitude.toFixed(6)}, 
-                        {organizationBounds.center.longitude.toFixed(6)}
-                      </Text>
-                      <Text style={styles.modalText}>
-                        Allowed Radius: {organizationBounds.radius}m
-                      </Text>
-                    </>
-                  )}
-                </>
-              ) : (
-                <Text style={styles.modalText}>
-                  Location information not available
-                </Text>
-              )}
-            </Card.Content>
-          </Card>
-        </Modal>
-      </Portal>
+      <FAB
+        style={styles.fab}
+        icon="plus"
+        onPress={handleManualEntry}
+        label="Manual Entry"
+      />
 
-      {/* Biometric Modal */}
-      <Portal>
-        <Modal
-          visible={showBiometricModal}
-          contentContainerStyle={styles.modalContainer}
-        >
-          <Card>
-            <Card.Content style={styles.biometricModalContent}>
-              <ActivityIndicator size="large" color="#6C63FF" />
-              <Text style={styles.biometricModalText}>
-                Authenticating biometric...
-              </Text>
-              <Text style={styles.biometricModalSubtext}>
-                Please follow the biometric prompt
-              </Text>
-            </Card.Content>
-          </Card>
-        </Modal>
-      </Portal>
-    </SafeAreaView>
+      {/* Face Capture Modal */}
+      <FaceCaptureModal
+        visible={showCaptureModal}
+        onClose={() => setShowCaptureModal(false)}
+        onCapture={handleCapture}
+        mode={captureMode}
+        scholarName={selectedScholar?.name}
+      />
+
+      {/* Manual Entry Modal */}
+      <Modal
+        visible={showManualModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowManualModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Manual Attendance Entry</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Enter Scholar ID"
+              value={manualId}
+              onChangeText={setManualId}
+              autoCapitalize="none"
+            />
+            <View style={styles.modalActions}>
+              <Button
+                mode="text"
+                onPress={() => {
+                  setShowManualModal(false);
+                  setManualId('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                onPress={submitManualEntry}
+              >
+                Submit
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F3F4F6',
   },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  header: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-  },
-  statusCard: {
+  summaryCard: {
     margin: 16,
     elevation: 4,
   },
-  statusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  statusTitle: {
+  summaryTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 12,
-    color: '#333',
-  },
-  statusText: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-  locationDetails: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-  },
-  statusButton: {
-    marginTop: 8,
-  },
-  lastAttendanceCard: {
-    margin: 16,
-    marginTop: 0,
-    elevation: 2,
-  },
-  lastAttendanceTime: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 4,
-  },
-  lastAttendanceStatus: {
-    fontSize: 14,
-    color: '#666',
-  },
-  progressCard: {
-    margin: 16,
-    elevation: 4,
-  },
-  progressTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-    color: '#333',
-  },
-  progressBar: {
-    height: 8,
-    borderRadius: 4,
-    marginBottom: 12,
-  },
-  progressText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  attendanceButtonContainer: {
-    alignItems: 'center',
-    marginVertical: 30,
-  },
-  attendanceButton: {
-    borderRadius: 80,
-    elevation: 8,
-  },
-  attendanceButtonInner: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-  },
-  attendanceButtonContent: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    flexDirection: 'column',
-  },
-  attendanceButtonLabel: {
-    fontSize: 16,
     fontWeight: 'bold',
-  },
-  attendanceButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  successCard: {
-    margin: 16,
-    elevation: 4,
-  },
-  successHeader: {
-    alignItems: 'center',
     marginBottom: 16,
+    color: '#1F2937',
   },
-  successTitle: {
+  summaryStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#4CAF50',
     marginTop: 8,
   },
-  successMessage: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
+  statLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
   },
-  successActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  successButton: {
-    flex: 0.45,
-  },
-  quickActionsCard: {
+  searchBar: {
     margin: 16,
-    elevation: 2,
+    elevation: 0,
+    backgroundColor: '#FFFFFF',
   },
-  quickActionsTitle: {
-    fontSize: 16,
+  listCard: {
+    margin: 16,
+    marginTop: 0,
+    elevation: 4,
+  },
+  scholarName: {
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 16,
-    color: '#333',
+    color: '#1F2937',
   },
-  quickActions: {
+  scholarId: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  statusChip: {
+    height: 28,
+  },
+  completedChip: {
+    backgroundColor: '#10B981',
+  },
+  checkedInChip: {
+    backgroundColor: '#3B82F6',
+  },
+  absentChip: {
+    backgroundColor: '#EF4444',
+  },
+  actionButton: {
+    padding: 8,
+  },
+  loader: {
+    marginTop: 50,
+  },
+  fab: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#1E3A8A',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 20,
+    width: '80%',
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    fontSize: 16,
+  },
+  modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-  },
-  quickActionButton: {
-    flex: 0.45,
-  },
-  modalContainer: {
-    margin: 20,
-  },
-  modalText: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 8,
-  },
-  biometricModalContent: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  biometricModalText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  biometricModalSubtext: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
   },
 });
-
-export default AttendanceScreen;

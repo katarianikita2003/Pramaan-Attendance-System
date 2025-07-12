@@ -1,171 +1,238 @@
 // mobile/PramaanExpo/src/navigation/AppNavigator.js
-import React, { useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import React from 'react';
+import { createStackNavigator } from '@react-navigation/stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../contexts/AuthContext';
-import { ActivityIndicator, View, Text } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-// Import existing screens
+// Screens
 import LoginScreen from '../screens/LoginScreen';
-import RegisterOrganizationScreen from '../screens/RegisterOrganizationScreen';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
-import ScholarDashboardScreen from '../screens/ScholarDashboardScreen';
 import AddScholarScreen from '../screens/AddScholarScreen';
+import ScholarsListScreen from '../screens/ScholarsListScreen';
 import AttendanceScreen from '../screens/AttendanceScreen';
+import ReportsScreen from '../screens/ReportsScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import ScholarDashboardScreen from '../screens/ScholarDashboardScreen';
 import AttendanceHistoryScreen from '../screens/AttendanceHistoryScreen';
+import ScholarProfileScreen from '../screens/ScholarProfileScreen';
+import VerificationScreen from '../screens/VerificationScreen';
+import AttendanceReportScreen from '../screens/AttendanceReportScreen';
+import BiometricSetupScreen from '../screens/BiometricSetupScreen';
 
-// Create WelcomeScreen component
-const WelcomeScreen = ({ navigation }) => {
+
+const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
+
+// Admin Tab Navigator
+function AdminTabNavigator() {
   return (
-    <View style={{ flex: 1, backgroundColor: '#f5f5f5', justifyContent: 'center', padding: 20 }}>
-      <View style={{ alignItems: 'center', marginBottom: 40 }}>
-        <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#6C63FF', marginBottom: 10 }}>
-          Pramaan
-        </Text>
-        <Text style={{ fontSize: 16, color: '#666', textAlign: 'center' }}>
-          Zero-Knowledge Proof Attendance System
-        </Text>
-      </View>
-      
-      <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 10, marginBottom: 20, elevation: 3 }}>
-        <Text style={{ fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 15 }}>
-          Organization Admin
-        </Text>
-        <Text style={{ color: '#666', textAlign: 'center', marginBottom: 20 }}>
-          Register your organization or login to manage attendance
-        </Text>
-        <Text 
-          style={{ 
-            backgroundColor: '#6C63FF', 
-            color: 'white', 
-            padding: 15, 
-            borderRadius: 8, 
-            textAlign: 'center', 
-            fontWeight: 'bold',
-            marginBottom: 10
-          }}
-          onPress={() => navigation.navigate('RegisterOrganization')}
-        >
-          Register Organization
-        </Text>
-        <Text 
-          style={{ 
-            borderWidth: 1, 
-            borderColor: '#6C63FF', 
-            color: '#6C63FF', 
-            padding: 15, 
-            borderRadius: 8,
-            textAlign: 'center', 
-            fontWeight: 'bold'
-          }}
-          onPress={() => navigation.navigate('Login', { userType: 'admin' })}
-        >
-          Admin Login
-        </Text>
-      </View>
-
-      <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 10, elevation: 3 }}>
-        <Text style={{ fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 15 }}>
-          Scholar/Student
-        </Text>
-        <Text style={{ color: '#666', textAlign: 'center', marginBottom: 20 }}>
-          Login to mark attendance with biometric authentication
-        </Text>
-        <Text 
-          style={{ 
-            backgroundColor: '#4CAF50', 
-            color: 'white', 
-            padding: 15, 
-            borderRadius: 8,
-            textAlign: 'center', 
-            fontWeight: 'bold'
-          }}
-          onPress={() => navigation.navigate('Login', { userType: 'scholar' })}
-        >
-          Scholar Login
-        </Text>
-      </View>
-    </View>
+    <Tab.Navigator
+      screenOptions={{
+        tabBarActiveTintColor: '#1E3A8A',
+        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopWidth: 1,
+          borderTopColor: '#E5E7EB',
+          paddingBottom: 5,
+          paddingTop: 5,
+          height: 60,
+        },
+        headerStyle: {
+          backgroundColor: '#1E3A8A',
+        },
+        headerTintColor: '#FFFFFF',
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
+      }}
+    >
+      <Tab.Screen
+        name="Dashboard"
+        component={AdminDashboardScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="view-dashboard" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Attendance"
+        component={AttendanceScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="calendar-check" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Scholars"
+        component={ScholarsListScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="account-group" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Reports"
+        component={ReportsScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="file-document" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="cog" color={color} size={size} />
+          ),
+        }}
+      />
+    </Tab.Navigator>
   );
-};
+}
 
-// Placeholder screens
-const ProfileScreen = () => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-    <Text>Profile Screen - Coming Soon</Text>
-  </View>
-);
+// Scholar Tab Navigator
+function ScholarTabNavigator() {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        tabBarActiveTintColor: '#1E3A8A',
+        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopWidth: 1,
+          borderTopColor: '#E5E7EB',
+          paddingBottom: 5,
+          paddingTop: 5,
+          height: 60,
+        },
+        headerStyle: {
+          backgroundColor: '#1E3A8A',
+        },
+        headerTintColor: '#FFFFFF',
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
+      }}
+    >
+      <Tab.Screen
+        name="Dashboard"
+        component={ScholarDashboardScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="view-dashboard" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="History"
+        component={AttendanceHistoryScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="history" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ScholarProfileScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="account" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="cog" color={color} size={size} />
+          ),
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
 
-const ReportsScreen = () => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-    <Text>Reports Screen - Coming Soon</Text>
-  </View>
-);
-
-const SettingsScreen = () => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-    <Text>Settings Screen - Coming Soon</Text>
-  </View>
-);
-
-const VerifyProofScreen = () => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-    <Text>Verify Proof Screen - Coming Soon</Text>
-  </View>
-);
-
-const DownloadReportScreen = () => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-    <Text>Download Report Screen - Coming Soon</Text>
-  </View>
-);
-
-const Stack = createNativeStackNavigator();
-
-const AppNavigator = () => {
-  const { isAuthenticated, userType, loading } = useAuth();
+// Main App Navigator
+export default function AppNavigator() {
+  const { user, loading } = useAuth();
 
   if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#6C63FF" />
-      </View>
-    );
+    return null; // Or a loading screen
   }
 
-  // Helper function to get initial route
-  const getInitialRouteName = () => {
-    if (isAuthenticated) {
-      return userType === 'admin' ? 'AdminDashboard' : 'ScholarDashboard';
-    }
-    return 'Welcome';
-  };
-
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName={getInitialRouteName()}
-        screenOptions={{
-          headerShown: false,
-          animation: 'slide_from_right',
-        }}
-      >
-        <Stack.Screen name="Welcome" component={WelcomeScreen} />
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="RegisterOrganization" component={RegisterOrganizationScreen} />
-        <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
-        <Stack.Screen name="ScholarDashboard" component={ScholarDashboardScreen} />
-        <Stack.Screen name="AddScholar" component={AddScholarScreen} />
-        <Stack.Screen name="AttendanceScreen" component={AttendanceScreen} />
-        <Stack.Screen name="AttendanceHistory" component={AttendanceHistoryScreen} />
-        <Stack.Screen name="Reports" component={ReportsScreen} />
-        <Stack.Screen name="Settings" component={SettingsScreen} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="VerifyProof" component={VerifyProofScreen} />
-        <Stack.Screen name="DownloadReport" component={DownloadReportScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      {!user ? (
+        <>
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Verification" component={VerificationScreen} />
+        </>
+      ) : user.userType === 'admin' ? (
+        <>
+          <Stack.Screen name="AdminTabs" component={AdminTabNavigator} />
+          <Stack.Screen 
+            name="AddScholar" 
+            component={AddScholarScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Add New Scholar',
+              headerStyle: {
+                backgroundColor: '#1E3A8A',
+              },
+              headerTintColor: '#FFFFFF',
+            }}
+          />
+          <Stack.Screen 
+            name="ScholarProfile" 
+            component={ScholarProfileScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Scholar Profile',
+              headerStyle: {
+                backgroundColor: '#1E3A8A',
+              },
+              headerTintColor: '#FFFFFF',
+            }}
+          />
+          <Stack.Screen 
+            name="AttendanceReport" 
+            component={AttendanceReportScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Attendance Report',
+              headerStyle: {
+                backgroundColor: '#1E3A8A',
+              },
+              headerTintColor: '#FFFFFF',
+            }}
+          />
+          <Stack.Screen 
+            name="BiometricSetup" 
+            component={BiometricSetupScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Biometric Setup',
+              headerStyle: {
+                backgroundColor: '#1E3A8A',
+              },
+              headerTintColor: '#FFFFFF',
+            }}
+          />
+        </>
+      ) : (
+        <>
+          <Stack.Screen name="ScholarTabs" component={ScholarTabNavigator} />
+        </>
+      )}
+    </Stack.Navigator>
   );
-};
-
-export default AppNavigator;
+}

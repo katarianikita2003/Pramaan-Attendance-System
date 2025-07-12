@@ -15,9 +15,6 @@ import {
   Paragraph,
   Button,
   FAB,
-  Portal,
-  Dialog,
-  IconButton,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
@@ -35,8 +32,6 @@ const AdminDashboardScreen = ({ navigation }) => {
     attendanceRate: 0,
   });
   const [organization, setOrganization] = useState(null);
-  const [recentActivity, setRecentActivity] = useState([]);
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
@@ -46,49 +41,25 @@ const AdminDashboardScreen = ({ navigation }) => {
     try {
       setLoading(true);
       console.log('Loading dashboard data...');
-      
-      // Load organization details
-      try {
-        const orgData = await organizationService.getDetails();
-        console.log('Organization data:', orgData);
-        
-        if (orgData.success && orgData.organization) {
-          setOrganization(orgData.organization);
-        }
-      } catch (orgError) {
-        console.error('Error loading organization:', orgError);
+      const [orgResponse, dashboardResponse, analyticsResponse] = await Promise.all([
+        organizationService.getDetails(),
+        adminService.getDashboard(),
+        adminService.getAnalytics(),
+      ]);
+
+      console.log('Organization data:', orgResponse);
+      console.log('Dashboard data:', dashboardResponse);
+      console.log('Analytics data:', analyticsResponse);
+
+      if (orgResponse.organization) {
+        setOrganization(orgResponse.organization);
       }
 
-      // Load dashboard data
-      try {
-        const dashboardData = await adminService.getDashboard();
-        console.log('Dashboard data:', dashboardData);
-        
-        if (dashboardData.success) {
-          if (dashboardData.stats) {
-            setStats(dashboardData.stats);
-          }
-          if (dashboardData.recentActivity) {
-            setRecentActivity(dashboardData.recentActivity);
-          }
-        }
-      } catch (dashError) {
-        console.error('Error loading dashboard:', dashError);
+      if (dashboardResponse.stats) {
+        setStats(dashboardResponse.stats);
       }
-
-      // Load analytics (optional)
-      try {
-        const analyticsData = await adminService.getAnalytics();
-        console.log('Analytics data:', analyticsData);
-        // Process analytics data if needed
-      } catch (analyticsError) {
-        console.error('Error loading analytics:', analyticsError);
-        // Analytics is optional, so we don't show error to user
-      }
-
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
-      Alert.alert('Error', 'Failed to load dashboard data');
+      console.error('Dashboard load error:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -100,18 +71,26 @@ const AdminDashboardScreen = ({ navigation }) => {
     loadDashboardData();
   };
 
-  const handleLogout = async () => {
-    setShowLogoutDialog(false);
-    try {
-      await logout();
-      // Navigation will be handled by AppNavigator when auth state changes
-    } catch (error) {
-      Alert.alert('Error', 'Failed to logout. Please try again.');
-    }
-  };
-
-  const navigateToScreen = (screen, params = {}) => {
-    navigation.navigate(screen, params);
+  const handleLogout = () => {
+    // Use Alert instead of Dialog to avoid the error
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          onPress: async () => {
+            await logout();
+          },
+          style: 'destructive',
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   const StatCard = ({ title, value, icon, color, onPress }) => (
@@ -119,7 +98,7 @@ const AdminDashboardScreen = ({ navigation }) => {
       <Card style={[styles.statCard, { borderLeftColor: color }]}>
         <Card.Content style={styles.statCardContent}>
           <View style={styles.statIconContainer}>
-            <Icon name={icon} size={32} color={color} />
+            <Icon name={icon} size={40} color={color} />
           </View>
           <View style={styles.statTextContainer}>
             <Text style={styles.statValue}>{value}</Text>
@@ -130,160 +109,113 @@ const AdminDashboardScreen = ({ navigation }) => {
     </TouchableOpacity>
   );
 
+  if (loading && !refreshing) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
+        <View>
           <Text style={styles.welcomeText}>Welcome back,</Text>
           <Text style={styles.userName}>{user?.name || 'Admin'}</Text>
         </View>
-        <View style={styles.headerRight}>
-          <IconButton
-            icon="bell"
-            size={24}
-            onPress={() => Alert.alert('Notifications', 'No new notifications')}
-          />
-          <IconButton
-            icon="logout"
-            size={24}
-            onPress={() => setShowLogoutDialog(true)}
-          />
-        </View>
+        <TouchableOpacity onPress={handleLogout}>
+          <Icon name="logout" size={24} color="#666" />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
+        style={styles.container}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        showsVerticalScrollIndicator={false}
       >
-        {/* Organization Info */}
-        <Card style={styles.orgCard}>
-          <Card.Content>
-            <View style={styles.orgHeader}>
-              <Icon name="business" size={24} color="#6C63FF" />
-              <View style={styles.orgInfo}>
-                <Title style={styles.orgName}>
-                  {organization?.name || 'Organization'}
-                </Title>
-                <Paragraph style={styles.orgCode}>
-                  Code: {organization?.code || '------'}
-                </Paragraph>
+        {organization && (
+          <Card style={styles.orgCard}>
+            <Card.Content>
+              <View style={styles.orgHeader}>
+                <Icon name="business" size={40} color="#6C63FF" />
+                <View style={styles.orgInfo}>
+                  <Title style={styles.orgName}>{organization.name}</Title>
+                  <Paragraph style={styles.orgCode}>Code: {organization.code}</Paragraph>
+                </View>
               </View>
-            </View>
-          </Card.Content>
-        </Card>
+            </Card.Content>
+          </Card>
+        )}
 
-        {/* Stats Grid */}
         <View style={styles.statsGrid}>
           <StatCard
             title="Total Scholars"
             value={stats.totalScholars}
             icon="people"
             color="#6C63FF"
-            onPress={() => navigateToScreen('Reports', { tab: 'scholars' })}
+            onPress={() => navigation.navigate('Scholars')}
           />
           <StatCard
             title="Present Today"
             value={stats.presentToday}
             icon="check-circle"
             color="#4CAF50"
-            onPress={() => navigateToScreen('Reports', { tab: 'today' })}
           />
           <StatCard
             title="Absent Today"
             value={stats.absentToday}
             icon="cancel"
-            color="#FF5252"
-            onPress={() => navigateToScreen('Reports', { tab: 'absent' })}
+            color="#F44336"
           />
           <StatCard
             title="Attendance Rate"
-            value={`${stats.attendanceRate || 0}%`}
-            icon="insights"
+            value={`${stats.attendanceRate}%`}
+            icon="trending-up"
             color="#FF9800"
           />
         </View>
 
-        {/* Quick Actions */}
         <Card style={styles.actionsCard}>
           <Card.Title title="Quick Actions" />
           <Card.Content>
             <Button
               mode="outlined"
-              icon={() => <Icon name="person-add-alt" size={20} color="#6C63FF" />}
-              onPress={() => navigateToScreen('AddScholar')}
+              icon="account-plus"
+              onPress={() => navigation.navigate('AddScholar')}
               style={styles.actionButton}
             >
               Add New Scholar
             </Button>
             <Button
               mode="outlined"
-              icon={() => <Icon name="description" size={20} color="#6C63FF" />}
-              onPress={() => navigateToScreen('Reports')}
+              icon="clipboard-list"
+              onPress={() => navigation.navigate('Reports')}
               style={styles.actionButton}
             >
               View Reports
             </Button>
             <Button
               mode="outlined"
-              icon={() => <Icon name="qr-code-scanner" size={20} color="#6C63FF" />}
-              onPress={() => navigateToScreen('VerifyProof')}
+              icon="qrcode-scan"
+              onPress={() => navigation.navigate('ScanQR')}
               style={styles.actionButton}
             >
-              Verify Attendance
-            </Button>
-            <Button
-              mode="outlined"
-              icon={() => <Icon name="settings" size={20} color="#6C63FF" />}
-              onPress={() => navigateToScreen('Settings')}
-              style={styles.actionButton}
-            >
-              Organization Settings
+              Scan QR Code
             </Button>
           </Card.Content>
         </Card>
-
-        {/* Recent Activity */}
-        {recentActivity && recentActivity.length > 0 && (
-          <Card style={styles.activityCard}>
-            <Card.Title title="Recent Activity" />
-            <Card.Content>
-              {recentActivity.slice(0, 5).map((activity, index) => (
-                <View key={index} style={styles.activityItem}>
-                  <Icon name="event" size={16} color="#666" />
-                  <Text style={styles.activityText}>{activity.description}</Text>
-                </View>
-              ))}
-            </Card.Content>
-          </Card>
-        )}
       </ScrollView>
 
-      {/* FAB */}
       <FAB
         icon="plus"
         style={styles.fab}
-        onPress={() => navigateToScreen('AddScholar')}
+        onPress={() => navigation.navigate('AddScholar')}
       />
-
-      {/* Logout Dialog */}
-      <Portal>
-        <Dialog
-          visible={showLogoutDialog}
-          onDismiss={() => setShowLogoutDialog(false)}
-        >
-          <Dialog.Title>Logout</Dialog.Title>
-          <Dialog.Content>
-            <Paragraph>Are you sure you want to logout?</Paragraph>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setShowLogoutDialog(false)}>Cancel</Button>
-            <Button onPress={handleLogout} mode="contained">Logout</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
     </SafeAreaView>
   );
 };
@@ -293,21 +225,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    paddingTop: 8,
+    padding: 20,
     backgroundColor: 'white',
     elevation: 2,
-  },
-  headerLeft: {
-    flex: 1,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   welcomeText: {
     fontSize: 14,
@@ -331,7 +260,6 @@ const styles = StyleSheet.create({
   },
   orgInfo: {
     marginLeft: 12,
-    flex: 1,
   },
   orgName: {
     fontSize: 18,
@@ -357,7 +285,6 @@ const styles = StyleSheet.create({
   statCardContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
   },
   statIconContainer: {
     marginRight: 12,
@@ -382,20 +309,6 @@ const styles = StyleSheet.create({
   actionButton: {
     marginBottom: 12,
     borderColor: '#6C63FF',
-  },
-  activityCard: {
-    margin: 16,
-    elevation: 2,
-  },
-  activityItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  activityText: {
-    marginLeft: 8,
-    color: '#666',
-    fontSize: 14,
   },
   fab: {
     position: 'absolute',
