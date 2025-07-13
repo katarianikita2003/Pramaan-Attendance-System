@@ -25,8 +25,8 @@ import adminRoutes from './src/routes/admin.routes.js';
 import { errorHandler } from './src/middleware/error.middleware.js';
 import { requestLogger } from './src/middleware/logger.middleware.js';
 
-// Import services
-import { ZKPService } from './src/services/zkp.service.js';
+// Import services - Updated to import the singleton instance
+import { zkpService } from './src/services/zkp.service.js';
 import logger from './src/utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -40,9 +40,6 @@ dotenv.config({
 // Initialize express app
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// Initialize services
-const zkpService = new ZKPService();
 
 // Middleware
 app.use(helmet({
@@ -156,11 +153,11 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
-    zkpStatus: zkpService.isInitialized ? 'initialized' : 'not initialized',
+    zkpStatus: zkpService.isInitialized() ? 'initialized' : 'not initialized',
     database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     services: {
       database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-      zkp: zkpService.isInitialized ? 'active' : 'inactive'
+      zkp: zkpService.isInitialized() ? 'active' : 'inactive'
     }
   });
 });
@@ -264,7 +261,7 @@ async function startServer() {
       console.log('🚀 Pramaan Backend Server Started');
       console.log('========================================');
       console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🔐 ZKP Status: ${zkpService.isInitialized ? 'Active' : 'Simulation Mode'}`);
+      console.log(`🔐 ZKP Status: ${zkpService.isInitialized() ? 'Active' : 'Simulation Mode'}`);
       console.log(`🌐 Server URL: http://localhost:${PORT}`);
       console.log('========================================');
       

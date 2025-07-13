@@ -4,7 +4,7 @@ import logger from '../utils/logger.js';
 
 export class ZKPService {
   constructor() {
-    this.isInitialized = false;
+    this._initialized = false;
     this.simulationMode = true; // For MVP
   }
 
@@ -14,7 +14,7 @@ export class ZKPService {
       // For MVP, we'll use simulation mode
       logger.info('ZKP Service initializing in simulation mode');
       
-      this.isInitialized = true;
+      this._initialized = true;
       this.simulationMode = true;
       
       logger.info('ZKP Service initialized successfully');
@@ -24,26 +24,29 @@ export class ZKPService {
     }
   }
 
+  isInitialized() {
+    return this._initialized;
+  }
+
   /**
    * Generate ZKP proof for attendance
    */
   async generateAttendanceProof(input) {
-    if (!this.isInitialized) {
+    if (!this._initialized) {
       throw new Error('ZKP Service not initialized');
     }
 
     try {
-      const { did, biometricCommitment, timestamp, location } = input;
+      const { scholarId, biometricCommitment, timestamp, location } = input;
 
       if (this.simulationMode) {
         // Simulate proof generation
-        const proof = this.simulateProofGeneration(input);
+        const proofData = this.simulateProofGeneration(input);
         
         return {
-          proof: proof.proof,
-          publicInputs: proof.publicInputs,
-          proofHash: proof.proofHash,
-          verificationKey: proof.verificationKey
+          proof: proofData.proof,
+          proofId: 'PROOF-' + Date.now().toString(36).toUpperCase() + '-' + 
+                   Math.random().toString(36).substr(2, 9).toUpperCase()
         };
       }
 
@@ -59,15 +62,18 @@ export class ZKPService {
   /**
    * Verify ZKP proof
    */
-  async verifyProof(proof, publicInputs, verificationKey) {
-    if (!this.isInitialized) {
+  async verifyProof(proof) {
+    if (!this._initialized) {
       throw new Error('ZKP Service not initialized');
     }
 
     try {
       if (this.simulationMode) {
-        // Simulate verification
-        return this.simulateVerification(proof, publicInputs);
+        // Simulate verification - always return true for valid JSON structure
+        if (typeof proof === 'object' && proof !== null) {
+          return true;
+        }
+        return false;
       }
 
       // In production, this would use actual verification
@@ -83,11 +89,11 @@ export class ZKPService {
    * Simulate proof generation (for MVP)
    */
   simulateProofGeneration(input) {
-    const { did, biometricCommitment, timestamp, location } = input;
+    const { scholarId, biometricCommitment, timestamp, location } = input;
 
     // Create deterministic proof based on inputs
     const proofData = {
-      did,
+      scholarId,
       commitment: biometricCommitment,
       timestamp,
       location,
@@ -118,60 +124,14 @@ export class ZKPService {
         crypto.randomBytes(32).toString('hex')
       ],
       protocol: 'groth16',
-      curve: 'bn128'
-    };
-
-    const publicInputs = {
-      did,
-      timestamp,
-      locationHash: crypto
-        .createHash('sha256')
-        .update(JSON.stringify(location))
-        .digest('hex')
-        .substring(0, 16)
-    };
-
-    const verificationKey = {
-      protocol: 'groth16',
       curve: 'bn128',
-      vk_alpha: crypto.randomBytes(32).toString('hex'),
-      vk_beta: crypto.randomBytes(32).toString('hex'),
-      vk_gamma: crypto.randomBytes(32).toString('hex'),
-      vk_delta: crypto.randomBytes(32).toString('hex')
+      proofHash: proofHash
     };
 
     return {
-      proof: JSON.stringify(proof),
-      publicInputs,
-      proofHash,
-      verificationKey: JSON.stringify(verificationKey)
+      proof: proof,
+      proofHash: proofHash
     };
-  }
-
-  /**
-   * Simulate proof verification (for MVP)
-   */
-  simulateVerification(proofString, publicInputs) {
-    try {
-      const proof = JSON.parse(proofString);
-      
-      // Basic validation
-      if (!proof.pi_a || !proof.pi_b || !proof.pi_c) {
-        return false;
-      }
-
-      if (!publicInputs.did || !publicInputs.timestamp) {
-        return false;
-      }
-
-      // In production, this would perform actual cryptographic verification
-      // For MVP, we'll return true for valid structure
-      return true;
-
-    } catch (error) {
-      logger.error('Simulation verification error:', error);
-      return false;
-    }
   }
 
   /**
@@ -190,3 +150,6 @@ export class ZKPService {
       .digest('hex');
   }
 }
+
+// Create and export a singleton instance
+export const zkpService = new ZKPService();

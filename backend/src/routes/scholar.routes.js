@@ -4,7 +4,9 @@ import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 import Scholar from '../models/Scholar.js';
 import BiometricCommitment from '../models/BiometricCommitment.js';
-import { authenticateToken } from '../middleware/auth.middleware.js';
+import AttendanceRecord from '../models/AttendanceRecord.js';
+import Organization from '../models/Organization.js';
+import { authenticateToken, requireRole } from '../middleware/auth.middleware.js';
 import { authorizeRoles } from '../middleware/role.middleware.js';
 import logger from '../utils/logger.js';
 
@@ -290,6 +292,47 @@ router.get('/attendance/history',
   }
 );
 
+// @route   GET /api/scholar/attendance/today
+// @desc    Get today's attendance
+// @access  Private (Scholar)
+router.get('/attendance/today', 
+  authenticateToken, 
+  requireRole('scholar'), 
+  async (req, res) => {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const attendance = await AttendanceRecord.findOne({
+        scholar: req.user.id,
+        markedAt: { $gte: today, $lt: tomorrow }
+      });
+
+      res.json({
+        success: true,
+        attendance: attendance ? {
+          id: attendance._id,
+          markedAt: attendance.markedAt,
+          status: attendance.status,
+          proofId: attendance.proofId,
+          locationValid: attendance.locationValid,
+          verificationMethod: attendance.verificationMethod,
+          timestamp: attendance.markedAt
+        } : null
+      });
+
+    } catch (error) {
+      logger.error('Get today attendance error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch today\'s attendance'
+      });
+    }
+  }
+);
+
 // @route   POST /api/scholar/change-password
 // @desc    Change scholar password
 // @access  Private (Scholar)
@@ -337,8 +380,6 @@ router.post('/change-password',
     }
   }
 );
-
-// Add this route to backend/src/routes/scholar.routes.js
 
 // @route   POST /api/scholar/self-register
 // @desc    Scholar self-registration with organization code

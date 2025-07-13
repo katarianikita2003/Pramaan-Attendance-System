@@ -22,8 +22,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 
-const LoginScreen = ({ navigation }) => {
+const LoginScreen = () => {
+  const navigation = useNavigation();
   const { login } = useAuth();
   const [userType, setUserType] = useState('admin');
   const [email, setEmail] = useState('');
@@ -66,16 +68,16 @@ const LoginScreen = ({ navigation }) => {
 
     try {
       console.log('Login attempt:', {
-        email,
+        email: email.trim().toLowerCase(),
         userType,
         passwordLength: password.length,
-        hasOrgCode: userType === 'scholar' ? organizationCode : 'N/A'
+        organizationCode: userType === 'scholar' ? organizationCode.trim().toUpperCase() : 'N/A'
       });
 
       const result = await login(
         email.trim().toLowerCase(),
         password,
-        userType === 'scholar' ? organizationCode.trim() : null,
+        userType === 'scholar' ? organizationCode.trim().toUpperCase() : null,
         userType
       );
 
@@ -84,11 +86,25 @@ const LoginScreen = ({ navigation }) => {
         // Navigation will be handled automatically by AuthContext
       } else {
         console.log('Login failed:', result.error);
-        Alert.alert(
-          'Login Failed',
-          result.error || 'Invalid credentials. Please try again.',
-          [{ text: 'OK' }]
-        );
+
+        // Handle specific error messages
+        let errorMessage = 'Invalid credentials. Please try again.';
+
+        if (result.error === 'Account is deactivated') {
+          errorMessage = 'Your account is currently inactive. Please contact your administrator.';
+        } else if (result.error === 'Invalid credentials') {
+          if (userType === 'scholar') {
+            errorMessage = 'Invalid email, password, or organization code. Please check your credentials.';
+          } else {
+            errorMessage = 'Invalid email or password. Please check your credentials.';
+          }
+        } else if (result.error === 'Organization is inactive') {
+          errorMessage = 'Your organization is currently inactive. Please contact support.';
+        } else if (result.error) {
+          errorMessage = result.error;
+        }
+
+        Alert.alert('Login Failed', errorMessage, [{ text: 'OK' }]);
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -110,6 +126,38 @@ const LoginScreen = ({ navigation }) => {
     );
   };
 
+  const handleRegisterOrganization = () => {
+    navigation.navigate('RegisterOrganization'); 
+  };
+
+  // The full register section should look like this:
+  {
+    userType === 'admin' && (
+      <View style={styles.registerContainer}>
+        <Text style={styles.registerText}>
+          New organization?{' '}
+        </Text>
+        <TouchableOpacity onPress={handleRegisterOrganization}>
+          <Text style={styles.registerLink}>Register here</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  // The register button section should remain the same:
+  {
+    userType === 'admin' && (
+      <View style={styles.registerContainer}>
+        <Text style={styles.registerText}>
+          New organization?{' '}
+        </Text>
+        <TouchableOpacity onPress={handleRegisterOrganization}>
+          <Text style={styles.registerLink}>Register here</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -119,6 +167,7 @@ const LoginScreen = ({ navigation }) => {
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.logoContainer}>
             <View style={styles.logoPlaceholder}>
@@ -139,6 +188,10 @@ const LoginScreen = ({ navigation }) => {
                   onValueChange={value => {
                     setUserType(value);
                     setErrors({});
+                    // Clear organization code when switching to admin
+                    if (value === 'admin') {
+                      setOrganizationCode('');
+                    }
                   }}
                   value={userType}
                 >
@@ -162,6 +215,7 @@ const LoginScreen = ({ navigation }) => {
                 mode="outlined"
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={false}
                 left={<TextInput.Icon icon="email" />}
                 error={!!errors.email}
               />
@@ -181,6 +235,8 @@ const LoginScreen = ({ navigation }) => {
                 style={styles.input}
                 mode="outlined"
                 secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
                 left={<TextInput.Icon icon="lock" />}
                 right={
                   <TextInput.Icon
@@ -200,7 +256,7 @@ const LoginScreen = ({ navigation }) => {
                     label="Organization Code"
                     value={organizationCode}
                     onChangeText={text => {
-                      setOrganizationCode(text);
+                      setOrganizationCode(text.toUpperCase());
                       if (errors.organizationCode) {
                         setErrors({ ...errors, organizationCode: null });
                       }
@@ -208,8 +264,10 @@ const LoginScreen = ({ navigation }) => {
                     style={styles.input}
                     mode="outlined"
                     autoCapitalize="characters"
+                    autoCorrect={false}
                     left={<TextInput.Icon icon="domain" />}
                     error={!!errors.organizationCode}
+                    placeholder="e.g., TEST001"
                   />
                   <HelperText type="error" visible={!!errors.organizationCode}>
                     {errors.organizationCode}
@@ -236,15 +294,7 @@ const LoginScreen = ({ navigation }) => {
                   <Text style={styles.registerText}>
                     New organization?{' '}
                   </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      Alert.alert(
-                        'Registration',
-                        'Please contact the system administrator to register your organization.',
-                        [{ text: 'OK' }]
-                      );
-                    }}
-                  >
+                  <TouchableOpacity onPress={handleRegisterOrganization}>
                     <Text style={styles.registerLink}>Register here</Text>
                   </TouchableOpacity>
                 </View>
@@ -258,7 +308,8 @@ const LoginScreen = ({ navigation }) => {
               <Card.Content>
                 <Text style={styles.debugTitle}>Test Credentials</Text>
                 <Text style={styles.debugText}>Admin: admin1@gmail.com / Test@123</Text>
-                <Text style={styles.debugText}>Scholar: scholar1@example.com / password123 / TEST001</Text>
+                <Text style={styles.debugText}>Scholar: scholar9@gmail.com / [password you set] / TEST001</Text>
+                <Text style={styles.debugText}>Note: Organization code must be uppercase</Text>
               </Card.Content>
             </Card>
           )}
