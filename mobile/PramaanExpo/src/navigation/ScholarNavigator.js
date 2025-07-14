@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 // Import screens
 import ScholarDashboard from '../screens/ScholarDashboardScreen';
-import MarkAttendanceScreen from '../screens/MarkAttendanceScreen';
+import AttendanceScreen from '../screens/AttendanceScreen'; // Updated to use AttendanceScreen
 import AttendanceHistoryScreen from '../screens/AttendanceHistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AttendanceProofScreen from '../screens/AttendanceProofScreen';
@@ -56,10 +56,18 @@ const ScholarTabNavigator = () => {
       />
       <Tab.Screen 
         name="MarkAttendance" 
-        component={MarkAttendanceScreen}
+        component={AttendanceScreen} // Updated to use AttendanceScreen
         options={{ 
           title: 'Mark',
-          headerShown: false,
+          headerStyle: {
+            backgroundColor: '#6200EE',
+          },
+          headerTintColor: '#fff',
+          headerTitleStyle: {
+            fontWeight: 'bold',
+          },
+          headerTitle: 'Mark Attendance',
+          headerShown: true, // Show header for attendance screen
         }} 
       />
       <Tab.Screen 

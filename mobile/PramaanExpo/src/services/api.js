@@ -1,8 +1,14 @@
-// src/services/api.js
+// mobile/PramaanExpo/src/services/api.js
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert, Platform } from 'react-native';
-import { API_BASE_URL } from '../config/api'; // Import from config file
+
+// API Base URL - Update this with your backend server IP
+const API_BASE_URL = Platform.select({
+  ios: 'http://localhost:5000/api',
+  android: 'http://10.13.117.32:5000/api', // Your IP from the logs
+  default: 'http://localhost:5000/api',
+});
 
 // Create axios instance
 const api = axios.create({
@@ -14,18 +20,28 @@ const api = axios.create({
   },
 });
 
-// Request interceptor
+// Request interceptor - CRITICAL FIX FOR AUTH
 api.interceptors.request.use(
   async (config) => {
     try {
+      // Get token from AsyncStorage
       const token = await AsyncStorage.getItem('authToken');
+      
       if (token) {
+        // Add Authorization header with Bearer token
         config.headers.Authorization = `Bearer ${token}`;
       }
 
       // Debug logging
-      console.log('API Request:', config.method.toUpperCase(), config.url);
-      console.log('Full URL:', `${config.baseURL}${config.url}`);
+      console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
+      console.log(`Full URL: ${config.baseURL}${config.url}`);
+      
+      // Log auth header presence for debugging
+      if (config.headers.Authorization) {
+        console.log('Auth header present:', config.headers.Authorization.substring(0, 20) + '...');
+      } else {
+        console.log('No auth header in request');
+      }
 
       return config;
     } catch (error) {
@@ -42,34 +58,31 @@ api.interceptors.request.use(
 // Response interceptor
 api.interceptors.response.use(
   (response) => {
-    console.log('API Response:', response.config.url, response.status);
+    console.log(`API Response: ${response.config.url} ${response.status}`);
     return response;
   },
   async (error) => {
-    // Enhanced error logging
+    const originalRequest = error.config;
+    
     if (error.response) {
-      // The request was made and the server responded with a status code
       console.error('API Error Response:', {
+        url: error.response.config.url,
         status: error.response.status,
         data: error.response.data,
-        url: error.config?.url
       });
 
-      if (error.response.status === 401) {
-        // Handle unauthorized access
+      // Handle 401 errors (but not for login endpoints)
+      if (error.response.status === 401 && !originalRequest.url.includes('/auth/')) {
+        // Clear auth data
         await AsyncStorage.multiRemove(['authToken', 'userData', 'userType']);
         // You might want to navigate to login screen here
+        // Navigation.navigate('Login');
       }
     } else if (error.request) {
-      // The request was made but no response was received
-      console.error('API Network Error:', {
-        message: error.message,
-        url: error.config?.url,
-        baseURL: error.config?.baseURL
-      });
+      console.error('No response received:', error.request);
+      console.error('Network error - check if backend is running and accessible');
     } else {
-      // Something happened in setting up the request
-      console.error('API Request Setup Error:', error.message);
+      console.error('Request setup error:', error.message);
     }
 
     return Promise.reject(error);
@@ -80,7 +93,7 @@ api.interceptors.response.use(
 export const testConnection = async () => {
   try {
     console.log('Testing API connection to:', API_BASE_URL);
-    const response = await api.get('/');
+    const response = await api.get('/health'); // Assuming you have a health check endpoint
     console.log('API connection successful:', response.data);
     return true;
   } catch (error) {
@@ -93,7 +106,6 @@ export const testConnection = async () => {
 export const authService = {
   async adminLogin(email, password) {
     try {
-      // FIXED: Changed from '/auth/admin/login' to '/auth/admin-login'
       const response = await api.post('/auth/admin-login', { email, password });
       return response.data;
     } catch (error) {
@@ -131,12 +143,22 @@ export const authService = {
 
   async register(data) {
     try {
-      // FIXED: Changed from '/auth/register' to '/auth/register-organization'
+      console.log('Registering organization with data:', {
+        hasOrganization: !!data.organization,
+        hasAdmin: !!data.admin,
+        hasBoundaries: !!data.boundaries
+      });
+      
       const response = await api.post('/auth/register-organization', data);
       return response.data;
     } catch (error) {
+      console.error('Registration error:', error.response?.data || error.message);
       throw error;
     }
+  },
+
+  async registerOrganization(data) {
+    return this.register(data);
   },
 };
 
@@ -197,22 +219,23 @@ export const adminService = {
 
   async addScholar(scholarData) {
     try {
-      // Log what we're sending (excluding sensitive data)
       console.log('Sending scholar data to backend:', {
         scholarId: scholarData.scholarId,
         hasPersonalInfo: !!scholarData.personalInfo,
         hasAcademicInfo: !!scholarData.academicInfo,
         hasBiometrics: !!scholarData.biometrics,
-        organizationId: scholarData.organizationId
       });
 
-      // Send the data as-is, with proper biometrics field
       const response = await api.post('/admin/scholars', scholarData);
       return response.data;
     } catch (error) {
       console.error('Add scholar error:', error);
       throw error;
     }
+  },
+
+  async registerScholar(scholarData) {
+    return this.addScholar(scholarData);
   },
 
   async getScholarById(id) {
@@ -333,11 +356,26 @@ export const scholarService = {
   },
 };
 
-// Attendance service
+// Attendance service - For direct attendance operations
 export const attendanceService = {
-  async markAttendance(attendanceData) {
+  async markAttendance(scholarId, biometricProof) {
     try {
-      const response = await api.post('/attendance/mark', attendanceData);
+      // Note: We'll use this from the separate attendanceService.js file
+      // This is just for compatibility
+      const response = await api.post('/attendance/mark', {
+        scholarId,
+        biometricProof,
+        timestamp: new Date().toISOString(),
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  async getTodayAttendance() {
+    try {
+      const response = await api.get('/attendance/today');
       return response.data;
     } catch (error) {
       throw error;
@@ -374,8 +412,30 @@ export const attendanceService = {
   },
 };
 
-// Biometric service
+// Biometric service exports
 export const biometricService = {
+  async enroll(formData) {
+    try {
+      const response = await api.post('/biometric/enroll', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  async checkEnrollment(scholarId) {
+    try {
+      const response = await api.get(`/biometric/check-enrollment/${encodeURIComponent(scholarId)}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
   async enrollFingerprint(scholarId, fingerprintData) {
     try {
       const response = await api.post('/biometric/enroll/fingerprint', {
@@ -412,6 +472,9 @@ export const biometricService = {
     }
   },
 };
+
+// Export individual functions that RegisterOrganizationScreen expects
+export const { register, registerOrganization } = authService;
 
 // Default export
 export default api;

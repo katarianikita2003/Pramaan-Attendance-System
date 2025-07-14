@@ -17,11 +17,12 @@ import {
   HelperText,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
+import { authService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const RegisterOrganizationScreen = ({ navigation }) => {
-  const { register, login } = useAuth();
+  const { login } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   
@@ -138,6 +139,11 @@ const RegisterOrganizationScreen = ({ navigation }) => {
 
   const handleRegister = async () => {
     try {
+      // Prevent double submission
+      if (loading) {
+        return;
+      }
+
       setLoading(true);
 
       const registrationData = {
@@ -151,7 +157,7 @@ const RegisterOrganizationScreen = ({ navigation }) => {
         },
         admin: {
           name: adminData.adminName,
-          email: adminData.adminEmail,
+          email: adminData.adminEmail.toLowerCase(),
           password: adminData.adminPassword,
           phone: adminData.adminPhone || orgData.contactNumber,
         },
@@ -167,28 +173,20 @@ const RegisterOrganizationScreen = ({ navigation }) => {
 
       console.log('Attempting to register organization:', registrationData);
 
-      const response = await register(registrationData);
+      // Call the correct register function
+      const response = await authService.register(registrationData);
 
-      if (response.success && response.data) {
+      console.log('Registration response:', response);
+
+      if (response && (response.success || response.organizationCode)) {
         Alert.alert(
           'Registration Successful!',
-          `Your organization has been registered successfully.\n\nOrganization Code: ${response.data.organizationCode}\n\nPlease save this code. Your scholars will need it to register.\n\nYou can now login with your admin credentials.`,
+          `Your organization has been registered successfully.\n\nOrganization Code: ${response.organizationCode}\n\nPlease save this code. Your scholars will need it to register.\n\nYou can now login with your admin credentials.`,
           [
             {
               text: 'Login Now',
-              onPress: async () => {
-                // Auto-login the admin
-                const loginResponse = await login(
-                  adminData.adminEmail,
-                  adminData.adminPassword,
-                  null,
-                  'admin'
-                );
-                
-                if (!loginResponse.success) {
-                  // If auto-login fails, navigate to login screen
-                  navigation.navigate('Login', { userType: 'admin' });
-                }
+              onPress: () => {
+                navigation.navigate('Login');
               },
             },
           ]
@@ -196,15 +194,23 @@ const RegisterOrganizationScreen = ({ navigation }) => {
       } else {
         Alert.alert(
           'Registration Failed',
-          response.error || 'Something went wrong. Please try again.'
+          response?.error || response?.message || 'Failed to register organization'
         );
       }
     } catch (error) {
       console.error('Registration error:', error);
-      Alert.alert(
-        'Registration Failed',
-        'Something went wrong. Please try again.'
-      );
+      
+      let errorMessage = 'Something went wrong. Please try again.';
+      
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Registration Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -372,7 +378,6 @@ const RegisterOrganizationScreen = ({ navigation }) => {
         style={styles.input}
         mode="outlined"
         keyboardType="phone-pad"
-        placeholder="Optional - will use organization contact"
         outlineColor="#6C63FF"
         activeOutlineColor="#6C63FF"
       />
@@ -411,30 +416,57 @@ const RegisterOrganizationScreen = ({ navigation }) => {
 
   const renderStep3 = () => (
     <View>
-      <Text style={styles.stepTitle}>Review & Register</Text>
+      <Text style={styles.stepTitle}>Campus Boundaries (Optional)</Text>
       
-      <Card style={{ marginBottom: 20 }}>
-        <Card.Content>
-          <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>Organization Details</Text>
-          <Text>Name: {orgData.organizationName}</Text>
-          <Text>Type: {orgData.type}</Text>
-          <Text>Address: {orgData.address}, {orgData.city}, {orgData.state} - {orgData.pincode}</Text>
-          <Text>Contact: {orgData.contactNumber}</Text>
-        </Card.Content>
-      </Card>
+      <View style={styles.checkboxContainer}>
+        <Checkbox
+          status={boundaries.enableGeofencing ? 'checked' : 'unchecked'}
+          onPress={() => setBoundaries({
+            ...boundaries, 
+            enableGeofencing: !boundaries.enableGeofencing
+          })}
+        />
+        <Text style={styles.checkboxLabel}>Enable Geofencing</Text>
+      </View>
 
-      <Card style={{ marginBottom: 20 }}>
-        <Card.Content>
-          <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>Admin Details</Text>
-          <Text>Name: {adminData.adminName}</Text>
-          <Text>Email: {adminData.adminEmail}</Text>
-          <Text>Phone: {adminData.adminPhone || orgData.contactNumber}</Text>
-        </Card.Content>
-      </Card>
+      {boundaries.enableGeofencing && (
+        <>
+          <TextInput
+            label="Campus Radius (meters)"
+            value={boundaries.campusRadius}
+            onChangeText={(text) => setBoundaries({...boundaries, campusRadius: text})}
+            style={styles.input}
+            mode="outlined"
+            keyboardType="numeric"
+            outlineColor="#6C63FF"
+            activeOutlineColor="#6C63FF"
+          />
 
-      <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 20 }}>
-        By registering, you agree to our terms of service and privacy policy.
-      </Text>
+          <TextInput
+            label="Center Latitude"
+            value={boundaries.centerLatitude}
+            onChangeText={(text) => setBoundaries({...boundaries, centerLatitude: text})}
+            style={styles.input}
+            mode="outlined"
+            keyboardType="numeric"
+            placeholder="e.g., 28.6139"
+            outlineColor="#6C63FF"
+            activeOutlineColor="#6C63FF"
+          />
+
+          <TextInput
+            label="Center Longitude"
+            value={boundaries.centerLongitude}
+            onChangeText={(text) => setBoundaries({...boundaries, centerLongitude: text})}
+            style={styles.input}
+            mode="outlined"
+            keyboardType="numeric"
+            placeholder="e.g., 77.2090"
+            outlineColor="#6C63FF"
+            activeOutlineColor="#6C63FF"
+          />
+        </>
+      )}
     </View>
   );
 
@@ -442,13 +474,35 @@ const RegisterOrganizationScreen = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="arrow-left" size={24} color="#333" />
+          <Icon name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Register Organization</Text>
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.content}>
+      <View style={styles.stepIndicator}>
+        <View style={styles.stepWrapper}>
+          <View style={[styles.stepCircle, styles.stepActive]}>
+            <Text style={[styles.stepNumber, styles.stepNumberActive]}>1</Text>
+          </View>
+          <View style={[styles.stepLine, step > 1 && styles.stepLineActive]} />
+        </View>
+        
+        <View style={styles.stepWrapper}>
+          <View style={[styles.stepCircle, step >= 2 && styles.stepActive]}>
+            <Text style={[styles.stepNumber, step >= 2 && styles.stepNumberActive]}>2</Text>
+          </View>
+          <View style={[styles.stepLine, step > 2 && styles.stepLineActive]} />
+        </View>
+
+        <View style={styles.stepWrapper}>
+          <View style={[styles.stepCircle, step >= 3 && styles.stepActive]}>
+            <Text style={[styles.stepNumber, step >= 3 && styles.stepNumberActive]}>3</Text>
+          </View>
+        </View>
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
         {step === 3 && renderStep3()}
@@ -458,8 +512,8 @@ const RegisterOrganizationScreen = ({ navigation }) => {
             <Button
               mode="outlined"
               onPress={handleBack}
-              style={[styles.button]}
-              contentStyle={styles.buttonContent}
+              style={styles.button}
+              disabled={loading}
             >
               Back
             </Button>
@@ -510,6 +564,43 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
+  stepIndicator: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    backgroundColor: 'white',
+  },
+  stepWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stepCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E0E0E0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepActive: {
+    backgroundColor: '#6C63FF',
+  },
+  stepNumber: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#999',
+  },
+  stepNumberActive: {
+    color: 'white',
+  },
+  stepLine: {
+    width: 60,
+    height: 2,
+    backgroundColor: '#E0E0E0',
+  },
+  stepLineActive: {
+    backgroundColor: '#6C63FF',
+  },
   content: {
     flex: 1,
     padding: 20,
@@ -543,6 +634,16 @@ const styles = StyleSheet.create({
   radioRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  checkboxLabel: {
+    fontSize: 16,
+    marginLeft: 8,
+    color: '#333',
   },
   buttonContainer: {
     flexDirection: 'row',

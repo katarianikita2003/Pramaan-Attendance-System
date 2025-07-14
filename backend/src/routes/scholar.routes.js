@@ -297,7 +297,7 @@ router.get('/attendance/history',
 // @access  Private (Scholar)
 router.get('/attendance/today', 
   authenticateToken, 
-  requireRole('scholar'), 
+  authorizeRoles(['scholar']), 
   async (req, res) => {
     try {
       const today = new Date();

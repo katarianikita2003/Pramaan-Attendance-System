@@ -130,8 +130,8 @@ const organizationSchema = new mongoose.Schema({
 });
 
 // Indexes
-organizationSchema.index({ code: 1 });
-organizationSchema.index({ 'contact.email': 1 });
+// organizationSchema.index({ code: 1 });
+// organizationSchema.index({ 'contact.email': 1 });
 organizationSchema.index({ isActive: 1, isVerified: 1 });
 
 // Virtual for scholar count

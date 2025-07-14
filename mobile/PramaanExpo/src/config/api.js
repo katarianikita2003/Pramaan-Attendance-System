@@ -1,37 +1,70 @@
 // mobile/PramaanExpo/src/config/api.js
 import { Platform } from 'react-native';
 
-// Determine the correct base URL based on the platform
-const getBaseUrl = () => {
-  if (__DEV__) {
-    if (Platform.OS === 'android') {
-      // For Android Emulator use 10.0.2.2
-      // For physical device use your computer's IP
-      // Uncomment the line that works for your setup:
-      
-      // return 'http://10.0.2.2:5000'; // Android Emulator
-      return 'http://10.13.117.32:5000'; // Physical device or if emulator doesn't work
-    } else {
-      // iOS
-      return 'http://10.13.117.32:5000';
-    }
-  }
-  // Production URL (update when you have a production server)
-  return 'https://api.pramaan.app';
-};
+// Update this IP address to your computer's IP address
+const YOUR_COMPUTER_IP = '10.13.117.32'; // From your logs
 
-export const API_BASE_URL = `${getBaseUrl()}/api`;
-export const BASE_URL = getBaseUrl();
-
-// Export for debugging
-console.log('API Configuration:', {
-  BASE_URL,
-  API_BASE_URL,
-  Platform: Platform.OS,
-  DEV: __DEV__
+// API Base URLs
+export const API_BASE_URL = Platform.select({
+  ios: `http://localhost:5000/api`,
+  android: `http://${YOUR_COMPUTER_IP}:5000/api`,
+  default: `http://localhost:5000/api`,
 });
 
-export default {
-  API_BASE_URL,
-  BASE_URL
+export const BASE_URL = Platform.select({
+  ios: `http://localhost:5000`,
+  android: `http://${YOUR_COMPUTER_IP}:5000`,
+  default: `http://localhost:5000`,
+});
+
+// API Endpoints
+export const API_ENDPOINTS = {
+  // Auth endpoints
+  ADMIN_LOGIN: '/auth/admin-login',
+  SCHOLAR_LOGIN: '/auth/scholar/login',
+  REGISTER_ORGANIZATION: '/auth/register-organization',
+  REFRESH_TOKEN: '/auth/refresh-token',
+  LOGOUT: '/auth/logout',
+  
+  // Organization endpoints
+  ORGANIZATION_DETAILS: '/organization/details',
+  ORGANIZATION_SETTINGS: '/organization/settings',
+  ORGANIZATION_BOUNDARIES: '/organization/boundaries',
+  
+  // Scholar endpoints
+  SCHOLAR_PROFILE: '/scholar/profile',
+  SCHOLAR_STATS: '/scholar/stats',
+  SCHOLAR_ATTENDANCE_HISTORY: '/scholar/attendance/history',
+  SCHOLAR_ATTENDANCE_TODAY: '/scholar/attendance/today',
+  
+  // Admin endpoints
+  ADMIN_DASHBOARD: '/admin/dashboard',
+  ADMIN_SCHOLARS: '/admin/scholars',
+  ADMIN_REPORTS: '/admin/reports',
+  ADMIN_ANALYTICS: '/admin/analytics',
+  ADMIN_STATS: '/admin/stats',
+  
+  // Attendance endpoints
+  MARK_ATTENDANCE: '/attendance/mark',
+  VERIFY_PROOF: '/attendance/verify',
+  ATTENDANCE_HISTORY: '/attendance/history',
+  ATTENDANCE_STATS: '/attendance/stats',
+  
+  // Biometric endpoints
+  BIOMETRIC_ENROLL_FACE: '/biometric/enroll/face',
+  BIOMETRIC_ENROLL_FINGERPRINT: '/biometric/enroll/fingerprint',
+  BIOMETRIC_VERIFY: '/biometric/verify',
 };
+
+// Storage Keys
+export const STORAGE_KEYS = {
+  AUTH_TOKEN: 'authToken',
+  USER_DATA: 'userData',
+  USER_TYPE: 'userType',
+  ORGANIZATION_CODE: 'organizationCode',
+  BIOMETRIC_ENROLLED: 'biometricEnrolled',
+};
+
+// Other constants
+export const TIMEOUT = 30000; // 30 seconds
+export const MAX_RETRY_ATTEMPTS = 3;
