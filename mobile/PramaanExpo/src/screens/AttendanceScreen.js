@@ -101,90 +101,113 @@ const AttendanceScreen = ({ navigation }) => {
     }
   };
 
-  const handleBiometricEnrollment = async () => {
-    try {
-      setLoading(true);
-      setEnrollmentStep(1); // Face capture
+ const handleBiometricEnrollment = async () => {
+  try {
+    setLoading(true);
+    setEnrollmentStep(1); // Face capture
 
-      // Step 1: Capture face
-      console.log('Starting face capture...');
-      const faceImage = await biometricService.captureFace();
-      
-      if (!faceImage) {
-        Alert.alert('Error', 'Failed to capture face image');
-        setLoading(false);
-        setEnrollmentStep(0);
-        return;
-      }
+    // Step 1: Capture face
+    console.log('Starting face capture...');
+    const faceImage = await biometricService.captureFace();
+    
+    if (!faceImage) {
+      Alert.alert('Error', 'Failed to capture face image');
+      setLoading(false);
+      setEnrollmentStep(0);
+      return;
+    }
 
-      setCapturedFace(faceImage);
-      setEnrollmentStep(2); // Fingerprint capture
+    setCapturedFace(faceImage);
+    setEnrollmentStep(2); // Fingerprint capture
 
-      // Step 2: Authenticate with fingerprint
-      console.log('Starting fingerprint authentication...');
-      const fingerprintAuth = await biometricService.authenticateWithFingerprint();
-      
-      if (!fingerprintAuth.success) {
-        Alert.alert('Error', 'Fingerprint authentication failed');
-        setLoading(false);
-        setEnrollmentStep(0);
-        setCapturedFace(null);
-        return;
-      }
-
-      setEnrollmentStep(3); // Processing
-
-      // Step 3: Create enrollment data
-      const formData = new FormData();
-      formData.append('scholarId', user.scholarId);
-      formData.append('fingerprintData', JSON.stringify({
-        type: 'fingerprint',
-        timestamp: new Date().toISOString(),
-        hash: fingerprintAuth.hash || 'simulated-hash',
-      }));
-
-      // Add face image to form data
-      formData.append('faceImage', {
-        uri: faceImage.uri,
-        type: 'image/jpeg',
-        name: 'face.jpg',
-      });
-
-      console.log('Sending enrollment data to backend...');
-
-      // Step 4: Send to backend
-      const response = await api.post('/biometric/enroll', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        timeout: 30000, // 30 second timeout for enrollment
-      });
-
-      console.log('Enrollment response:', response.data);
-
-      if (response.data.success) {
-        // Update enrollment status
-        setBiometricEnrolled(true);
-        setShowEnrollModal(false);
-        
-        Alert.alert(
-          'Success',
-          'Biometric enrollment completed successfully!',
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert('Error', response.data.error || 'Failed to enroll biometric');
-      }
-    } catch (error) {
-      console.error('Biometric enrollment error:', error);
-      const errorMessage = error.response?.data?.error || error.message || 'Failed to complete biometric enrollment';
-      Alert.alert('Error', errorMessage);
-    } finally {
+    // Step 2: Authenticate with fingerprint
+    console.log('Starting fingerprint authentication...');
+    const fingerprintAuth = await biometricService.authenticateWithFingerprint();
+    
+    if (!fingerprintAuth.success) {
+      Alert.alert('Error', 'Fingerprint authentication failed');
       setLoading(false);
       setEnrollmentStep(0);
       setCapturedFace(null);
+      return;
     }
-  };
+
+    setEnrollmentStep(3); // Processing
+
+    // NEW CODE: Generate commitments for local storage
+    console.log('Generating biometric commitments...');
+    const faceCommitment = await biometricService.generateBiometricCommitment({
+      uri: faceImage.uri,
+      base64: faceImage.base64,
+      type: 'face'
+    });
+
+    const fingerprintCommitment = await biometricService.generateBiometricCommitment({
+      data: fingerprintAuth.data || fingerprintAuth.hash,
+      type: 'fingerprint'
+    });
+
+    // CRITICAL: Save biometric data locally
+    const biometricData = {
+      faceCommitment: faceCommitment,
+      fingerprintCommitment: fingerprintCommitment,
+      enrolledAt: new Date().toISOString()
+    };
+
+    await biometricService.storeBiometricData(user.scholarId, biometricData);
+    console.log('Biometric data saved locally for scholar:', user.scholarId);
+
+    // Step 3: Create enrollment data for backend
+    const formData = new FormData();
+    formData.append('scholarId', user.scholarId);
+    formData.append('fingerprintData', JSON.stringify({
+      type: 'fingerprint',
+      timestamp: new Date().toISOString(),
+      hash: fingerprintAuth.hash || 'simulated-hash',
+    }));
+
+    // Add face image to form data
+    formData.append('faceImage', {
+      uri: faceImage.uri,
+      type: 'image/jpeg',
+      name: 'face.jpg',
+    });
+
+    console.log('Sending enrollment data to backend...');
+
+    // Step 4: Send to backend
+    const response = await api.post('/biometric/enroll', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 30000, // 30 second timeout for enrollment
+    });
+
+    console.log('Enrollment response:', response.data);
+
+    if (response.data.success) {
+      // Update enrollment status
+      setBiometricEnrolled(true);
+      setShowEnrollModal(false);
+      
+      Alert.alert(
+        'Success',
+        'Biometric enrollment completed successfully!',
+        [{ text: 'OK' }]
+      );
+    } else {
+      Alert.alert('Error', response.data.error || 'Failed to enroll biometric');
+    }
+  } catch (error) {
+    console.error('Biometric enrollment error:', error);
+    const errorMessage = error.response?.data?.error || error.message || 'Failed to complete biometric enrollment';
+    Alert.alert('Error', errorMessage);
+  } finally {
+    setLoading(false);
+    setEnrollmentStep(0);
+    setCapturedFace(null);
+  }
+};
 
   const handleMarkAttendance = async (type = 'checkIn') => {
     try {
