@@ -78,90 +78,53 @@ const scholarSchema = new mongoose.Schema({
     enrolledAt: { type: Date },
     faceEnrolled: { type: Boolean, default: false },
     fingerprintEnrolled: { type: Boolean, default: false },
-    faceCommitment: {
-      commitment: String,
-      nullifier: String,
-      timestamp: Date
-    },
-    fingerprintCommitment: {
-      commitment: String,
-      nullifier: String,
-      timestamp: Date
-    },
-    registeredAt: {
-      type: Date,
-      default: Date.now
-    }
+    // Store just the commitment strings, not objects
+    faceCommitment: { type: String },
+    fingerprintCommitment: { type: String },
+    registeredAt: { type: Date }
+  },
+  guardianInfo: {
+    name: String,
+    relation: String,
+    phone: String,
+    email: String
+  },
+  attendanceStats: {
+    totalDays: { type: Number, default: 0 },
+    presentDays: { type: Number, default: 0 },
+    absentDays: { type: Number, default: 0 },
+    percentage: { type: Number, default: 0 },
+    lastUpdated: Date
+  },
+  activity: {
+    lastLogin: Date,
+    lastAttendance: Date,
+    totalLogins: { type: Number, default: 0 }
+  },
+  devices: [{
+    deviceId: String,
+    platform: String,
+    model: String,
+    lastActive: Date
+  }],
+  status: {
+    type: String,
+    enum: ['active', 'inactive', 'suspended', 'graduated', 'pending_approval'],
+    default: 'active'
   },
   isActive: {
     type: Boolean,
     default: true
   },
-  attendanceStats: {
-    totalDays: {
-      type: Number,
-      default: 0
-    },
-    presentDays: {
-      type: Number,
-      default: 0
-    },
-    absentDays: {
-      type: Number,
-      default: 0
-    },
-    percentage: {
-      type: Number,
-      default: 0
-    },
-    lastUpdated: Date
-  },
-  status: {
-    type: String,
-    enum: ['active', 'inactive', 'suspended', 'graduated'],
-    default: 'active'
-  },
   settings: {
     notifications: {
-      email: {
-        type: Boolean,
-        default: true
-      },
-      sms: {
-        type: Boolean,
-        default: false
-      },
-      push: {
-        type: Boolean,
-        default: true
-      }
+      email: { type: Boolean, default: true },
+      sms: { type: Boolean, default: true },
+      push: { type: Boolean, default: true }
     },
     privacy: {
-      showEmail: {
-        type: Boolean,
-        default: false
-      },
-      showPhone: {
-        type: Boolean,
-        default: false
-      }
-    }
-  },
-  devices: [{
-    deviceId: String,
-    deviceName: String,
-    platform: String,
-    lastActive: Date,
-    pushToken: String
-  }],
-  flags: {
-    isVerified: {
-      type: Boolean,
-      default: false
-    },
-    requirePasswordChange: {
-      type: Boolean,
-      default: false
+      showProfile: { type: Boolean, default: true },
+      showAttendance: { type: Boolean, default: true }
     }
   }
 }, {
@@ -169,10 +132,9 @@ const scholarSchema = new mongoose.Schema({
 });
 
 // Indexes
-// scholarSchema.index({ 'personalInfo.email': 1 });
-// scholarSchema.index({ scholarId: 1 });
-scholarSchema.index({ organizationId: 1 });
-scholarSchema.index({ status: 1 });
+scholarSchema.index({ scholarId: 1, organizationId: 1 });
+scholarSchema.index({ 'personalInfo.email': 1 });
+scholarSchema.index({ organizationId: 1, status: 1 });
 
 // Virtual for full name
 scholarSchema.virtual('fullName').get(function() {

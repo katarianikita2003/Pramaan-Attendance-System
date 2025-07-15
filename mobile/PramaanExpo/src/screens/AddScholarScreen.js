@@ -1,5 +1,5 @@
 ﻿// mobile/PramaanExpo/src/screens/AddScholarScreen.js
-// COMPLETE FILE WITH FIXES FOR SUCCESS HANDLING AND CAMERA PERMISSIONS
+// COMPLETE FILE WITH ALL FIXES
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -31,7 +31,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../contexts/AuthContext';
 import { adminService } from '../services/api';
 import biometricService from '../services/biometricService';
-import { pickProfilePhoto } from '../services/profileService';
 
 const AddScholarScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -138,22 +137,20 @@ const AddScholarScreen = ({ navigation }) => {
     }
   };
 
-  const captureProfilePhoto = async () => {
+  const pickProfilePhoto = async () => {
     try {
-      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permissionResult.granted) {
-        Alert.alert('Permission Denied', 'Camera permission is required');
+        Alert.alert('Permission Denied', 'Gallery permission is required');
         return;
       }
 
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaType.Images,  // FIXED
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaType.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
-        base64: true,
-        cameraType: ImagePicker.CameraType.Front,  // FIXED
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -161,8 +158,8 @@ const AddScholarScreen = ({ navigation }) => {
         setProfilePhoto(imageUri);
       }
     } catch (error) {
-      console.error('Error capturing photo:', error);
-      Alert.alert('Error', 'Failed to capture photo');
+      console.error('Error picking photo:', error);
+      Alert.alert('Error', 'Failed to pick photo');
     }
   };
 
@@ -180,7 +177,7 @@ const AddScholarScreen = ({ navigation }) => {
 
       // Launch camera
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaType.Images, // Changed from MediaTypeOptions.Images
+        mediaTypes: ImagePicker.MediaType.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -194,15 +191,17 @@ const AddScholarScreen = ({ navigation }) => {
           faceImage: asset.uri,
         });
 
-        // Generate commitment
-        const commitmentData = await biometricService.generateBiometricCommitment({
+        // Generate commitment - this returns a string
+        const commitment = await biometricService.generateBiometricCommitment({
           uri: asset.uri,
           base64: asset.base64,
+          type: 'face',
+          timestamp: Date.now(),
         });
 
         setBiometricData(prev => ({
           ...prev,
-          faceCommitment: commitmentData,
+          faceCommitment: commitment, // This is already a string
         }));
 
         Alert.alert('Success', 'Face captured successfully');
@@ -226,11 +225,16 @@ const AddScholarScreen = ({ navigation }) => {
           fingerprintData: result.data,
         });
 
-        // Generate commitment
-        const commitmentData = await biometricService.generateBiometricCommitment(result.data);
+        // Generate commitment - this returns a string
+        const commitment = await biometricService.generateBiometricCommitment({
+          type: 'fingerprint',
+          timestamp: Date.now(),
+          data: result.data,
+        });
+        
         setBiometricData(prev => ({
           ...prev,
-          fingerprintCommitment: commitmentData,
+          fingerprintCommitment: commitment, // This is already a string
         }));
 
         Alert.alert('Success', 'Fingerprint captured successfully');
@@ -279,6 +283,19 @@ const AddScholarScreen = ({ navigation }) => {
         return;
       }
 
+      // Prepare biometrics object - Send commitment strings
+      let biometrics = {};
+      
+      if (biometricData.faceCommitment) {
+        // The commitment is already a string from generateBiometricCommitment
+        biometrics.faceCommitment = biometricData.faceCommitment;
+      }
+      
+      if (biometricData.fingerprintCommitment) {
+        // The commitment is already a string from generateBiometricCommitment
+        biometrics.fingerprintCommitment = biometricData.fingerprintCommitment;
+      }
+
       // Prepare submission data
       const submissionData = {
         scholarId: scholarData.scholarId.toUpperCase(),
@@ -299,14 +316,12 @@ const AddScholarScreen = ({ navigation }) => {
         },
         guardianInfo: guardianData,
         password: scholarData.password,
-        biometrics: {
-          faceCommitment: biometricData.faceCommitment,
-          fingerprintCommitment: biometricData.fingerprintCommitment,
-        },
+        biometrics: biometrics, // Now contains string commitments
         organizationId: organizationId,
       };
 
       console.log('Submitting scholar data with organizationId:', organizationId);
+      console.log('Biometrics data:', biometrics); // Debug log
 
       const response = await adminService.addScholar(submissionData);
 
@@ -336,6 +351,12 @@ const AddScholarScreen = ({ navigation }) => {
         Alert.alert(
           'Duplicate Scholar',
           'A scholar with this ID or email already exists. Please use different credentials.'
+        );
+      } else if (error.response?.status === 409) {
+        // Handle biometric duplicate errors
+        Alert.alert(
+          'Biometric Already Registered',
+          error.response?.data?.message || 'This biometric is already registered in the system.'
         );
       } else {
         Alert.alert(

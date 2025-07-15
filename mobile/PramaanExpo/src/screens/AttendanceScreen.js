@@ -480,7 +480,7 @@ const AttendanceScreen = ({ navigation }) => {
             <View style={styles.quickActions}>
               <Button
                 mode="text"
-                onPress={() => navigation.navigate('History')}
+                onPress={() => navigation.navigate('AttendanceHistory')}
                 icon="history"
               >
                 View History

@@ -5,6 +5,7 @@ import { body, validationResult } from 'express-validator';
 import { authenticateToken } from '../middleware/auth.middleware.js';
 import { AdminController } from '../controllers/admin.controller.js';
 import Scholar from '../models/Scholar.js';
+import BiometricCommitment from '../models/BiometricCommitment.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -58,6 +59,37 @@ router.post('/scholars',
         });
       }
 
+      // Check biometric uniqueness if provided
+      if (biometrics) {
+        if (biometrics.faceCommitment) {
+          const faceExists = await BiometricCommitment.findByHash(
+            biometrics.faceCommitment,
+            'face'
+          );
+          if (faceExists) {
+            return res.status(409).json({
+              success: false,
+              error: 'Face biometric already registered in the system',
+              message: 'This face biometric is already associated with another account'
+            });
+          }
+        }
+
+        if (biometrics.fingerprintCommitment) {
+          const fingerprintExists = await BiometricCommitment.findByHash(
+            biometrics.fingerprintCommitment,
+            'fingerprint'
+          );
+          if (fingerprintExists) {
+            return res.status(409).json({
+              success: false,
+              error: 'Fingerprint biometric already registered in the system',
+              message: 'This fingerprint biometric is already associated with another account'
+            });
+          }
+        }
+      }
+
       // Hash password
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
@@ -75,31 +107,57 @@ router.post('/scholars',
           passwordHash: hashedPassword
         },
         guardianInfo: guardianInfo || {},
-        biometrics: biometrics || {},
-        isActive: true,  // Explicitly set to true
-        status: 'active', // Explicitly set to active
+        biometrics: {
+          isEnrolled: !!(biometrics?.faceCommitment || biometrics?.fingerprintCommitment),
+          enrolledAt: biometrics ? new Date() : undefined,
+          faceEnrolled: !!biometrics?.faceCommitment,
+          fingerprintEnrolled: !!biometrics?.fingerprintCommitment,
+          // Store the commitment strings directly
+          faceCommitment: biometrics?.faceCommitment || undefined,
+          fingerprintCommitment: biometrics?.fingerprintCommitment || undefined,
+          registeredAt: biometrics ? new Date() : undefined
+        },
+        isActive: true,
+        status: 'active',
         attendanceStats: {
           totalDays: 0,
           presentDays: 0,
           absentDays: 0,
           percentage: 0
         },
-        settings: {
-          notifications: {
-            email: true,
-            sms: false,
-            push: true
-          },
-          privacy: {
-            showEmail: false,
-            showPhone: false
-          }
+        activity: {
+          lastLogin: null,
+          lastAttendance: null,
+          totalLogins: 0
         }
       });
 
       await newScholar.save();
 
-      logger.info(`Scholar created successfully: ${newScholar.scholarId}`);
+      // If biometrics provided, create biometric commitment record
+      if (biometrics && (biometrics.faceCommitment || biometrics.fingerprintCommitment)) {
+        const biometricCommitment = new BiometricCommitment({
+          userId: newScholar._id,
+          userType: 'scholar',
+          organizationId: organizationId,
+          commitments: {
+            face: biometrics.faceCommitment ? {
+              commitment: biometrics.faceCommitment,
+              hash: biometrics.faceCommitment, // In production, this should be a proper hash
+              timestamp: new Date()
+            } : undefined,
+            fingerprint: biometrics.fingerprintCommitment ? {
+              commitment: biometrics.fingerprintCommitment,
+              hash: biometrics.fingerprintCommitment, // In production, this should be a proper hash
+              timestamp: new Date()
+            } : undefined
+          }
+        });
+
+        await biometricCommitment.save();
+      }
+
+      logger.info(`Scholar created successfully: ${scholarId}`);
 
       res.status(201).json({
         message: 'Scholar added successfully',
@@ -107,31 +165,183 @@ router.post('/scholars',
           id: newScholar._id,
           scholarId: newScholar.scholarId,
           name: newScholar.personalInfo.name,
-          email: newScholar.personalInfo.email
+          email: newScholar.personalInfo.email,
+          status: newScholar.status
         }
       });
 
     } catch (error) {
       logger.error('Error adding scholar:', error);
-      res.status(500).json({ message: 'Failed to add scholar', error: error.message });
+      res.status(500).json({ 
+        message: 'Failed to add scholar',
+        error: error.message 
+      });
     }
   }
 );
 
-router.get('/scholars/:id', adminController.getScholarById);
-router.put('/scholars/:id', adminController.updateScholar);
-router.delete('/scholars/:id', adminController.deleteScholar);
+// Get scholar by ID (add this method if missing)
+router.get('/scholars/:id', adminController.getScholarById ? adminController.getScholarById : async (req, res) => {
+  try {
+    const { id } = req.params;
+    const organizationId = req.user.organizationId;
+
+    const scholar = await Scholar.findOne({ 
+      _id: id, 
+      organizationId 
+    }).select('-credentials.passwordHash');
+
+    if (!scholar) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Scholar not found' 
+      });
+    }
+
+    res.json({
+      success: true,
+      scholar
+    });
+  } catch (error) {
+    logger.error('Get scholar error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch scholar' 
+    });
+  }
+});
+
+// Update scholar
+router.put('/scholars/:id', adminController.updateScholar ? adminController.updateScholar : async (req, res) => {
+  try {
+    const { id } = req.params;
+    const organizationId = req.user.organizationId;
+    const updateData = req.body;
+
+    // Remove sensitive fields
+    delete updateData.scholarId;
+    delete updateData.organizationId;
+    delete updateData.credentials;
+    delete updateData.biometrics;
+
+    const scholar = await Scholar.findOneAndUpdate(
+      { _id: id, organizationId },
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).select('-credentials.passwordHash');
+
+    if (!scholar) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Scholar not found' 
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Scholar updated successfully',
+      scholar
+    });
+  } catch (error) {
+    logger.error('Update scholar error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update scholar' 
+    });
+  }
+});
+
+// Delete scholar
+router.delete('/scholars/:id', adminController.deleteScholar ? adminController.deleteScholar : async (req, res) => {
+  try {
+    const { id } = req.params;
+    const organizationId = req.user.organizationId;
+
+    const scholar = await Scholar.findOneAndDelete({ 
+      _id: id, 
+      organizationId 
+    });
+
+    if (!scholar) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Scholar not found' 
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Scholar deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Delete scholar error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete scholar' 
+    });
+  }
+});
+
+// Organization routes
+router.get('/organization', adminController.getOrganizationDetails ? adminController.getOrganizationDetails : async (req, res) => {
+  res.status(501).json({ success: false, error: 'Not implemented' });
+});
+
+router.put('/organization', adminController.updateOrganizationSettings ? adminController.updateOrganizationSettings : async (req, res) => {
+  res.status(501).json({ success: false, error: 'Not implemented' });
+});
+
+// Attendance routes
+router.get('/attendance', adminController.getAttendanceRecords ? adminController.getAttendanceRecords : async (req, res) => {
+  res.status(501).json({ success: false, error: 'Not implemented' });
+});
+
+router.get('/attendance/today', adminController.getTodayAttendance ? adminController.getTodayAttendance : async (req, res) => {
+  res.status(501).json({ success: false, error: 'Not implemented' });
+});
+
+router.get('/attendance/stats', adminController.getAttendanceStats ? adminController.getAttendanceStats : async (req, res) => {
+  res.status(501).json({ success: false, error: 'Not implemented' });
+});
 
 // Reports routes
-router.get('/reports', adminController.getReports);
-router.get('/reports/attendance', adminController.getAttendanceReport);
-router.get('/reports/export', adminController.exportReport);
+router.get('/reports/attendance', adminController.generateAttendanceReport ? adminController.generateAttendanceReport : async (req, res) => {
+  res.status(501).json({ success: false, error: 'Not implemented' });
+});
+
+router.get('/reports/scholars', adminController.generateScholarReport ? adminController.generateScholarReport : async (req, res) => {
+  res.status(501).json({ success: false, error: 'Not implemented' });
+});
 
 // Analytics routes
-router.get('/analytics', adminController.getAnalytics);
-router.get('/analytics/trends', adminController.getAttendanceTrends);
+router.get('/analytics', adminController.getAnalytics ? adminController.getAnalytics : async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+    
+    // Return empty analytics for now
+    res.json({
+      success: true,
+      analytics: {
+        dailyTrends: [],
+        peakHours: [],
+        monthlyStats: {
+          attendance: 0,
+          avgCheckInTime: null,
+          lateArrivals: 0
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get analytics error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch analytics' 
+    });
+  }
+});
 
-// General stats
-router.get('/stats', adminController.getStats);
+router.get('/analytics/trends', adminController.getAttendanceTrends ? adminController.getAttendanceTrends : async (req, res) => {
+  res.status(501).json({ success: false, error: 'Not implemented' });
+});
 
 export default router;
