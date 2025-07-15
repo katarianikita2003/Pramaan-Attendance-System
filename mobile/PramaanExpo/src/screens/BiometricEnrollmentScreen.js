@@ -21,6 +21,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as LocalAuthentication from 'expo-local-authentication';
 import biometricService from '../services/biometricService';
 import { scholarService } from '../services/api';
+import zkpService from '../services/zkpService';
+import api from '../services/api';
 
 const BiometricEnrollmentScreen = ({ navigation, route }) => {
   const { orgData, personalInfo, academicInfo, password } = route.params;

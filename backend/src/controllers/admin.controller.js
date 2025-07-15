@@ -10,7 +10,7 @@ export class AdminController {
   async getDashboard(req, res) {
     try {
       const organizationId = req.user.organizationId;
-      
+
       // Get organization details
       const organization = await Organization.findById(organizationId)
         .select('name code type address');
@@ -23,7 +23,7 @@ export class AdminController {
 
       // Get stats
       const totalScholars = await Scholar.countDocuments({ organizationId });
-      
+
       const todayAttendance = await Attendance.find({
         organizationId,
         date: { $gte: today, $lt: tomorrow }
@@ -31,7 +31,7 @@ export class AdminController {
 
       const presentToday = todayAttendance.length;
       const absentToday = totalScholars - presentToday;
-      const attendanceRate = totalScholars > 0 ? 
+      const attendanceRate = totalScholars > 0 ?
         Math.round((presentToday / totalScholars) * 100) : 0;
 
       // Get recent activity
@@ -60,9 +60,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Dashboard error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to load dashboard data' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to load dashboard data'
       });
     }
   }
@@ -71,7 +71,7 @@ export class AdminController {
   async getDashboardStats(req, res) {
     try {
       const organizationId = req.user.organizationId;
-      
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
@@ -89,15 +89,15 @@ export class AdminController {
           totalScholars,
           presentToday,
           absentToday: totalScholars - presentToday,
-          attendanceRate: totalScholars > 0 ? 
+          attendanceRate: totalScholars > 0 ?
             Math.round((presentToday / totalScholars) * 100) : 0
         }
       });
     } catch (error) {
       logger.error('Stats error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to load stats' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to load stats'
       });
     }
   }
@@ -136,9 +136,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Get scholars error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to fetch scholars' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch scholars'
       });
     }
   }
@@ -147,7 +147,7 @@ export class AdminController {
   async addScholar(req, res) {
     try {
       const organizationId = req.user.organizationId;
-      
+
       // Check if scholar with same email already exists
       const existingScholar = await Scholar.findOne({
         'personalInfo.email': req.body.personalInfo.email
@@ -212,9 +212,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Add scholar error:', error);
-      res.status(400).json({ 
-        success: false, 
-        error: error.message 
+      res.status(400).json({
+        success: false,
+        error: error.message
       });
     }
   }
@@ -225,15 +225,15 @@ export class AdminController {
       const { id } = req.params;
       const organizationId = req.user.organizationId;
 
-      const scholar = await Scholar.findOne({ 
-        _id: id, 
-        organizationId 
+      const scholar = await Scholar.findOne({
+        _id: id,
+        organizationId
       }).select('-biometricData -credentials');
 
       if (!scholar) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Scholar not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Scholar not found'
         });
       }
 
@@ -256,9 +256,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Get scholar error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to fetch scholar' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch scholar'
       });
     }
   }
@@ -282,9 +282,9 @@ export class AdminController {
       ).select('-biometricData -credentials');
 
       if (!scholar) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Scholar not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Scholar not found'
         });
       }
 
@@ -295,9 +295,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Update scholar error:', error);
-      res.status(400).json({ 
-        success: false, 
-        error: error.message 
+      res.status(400).json({
+        success: false,
+        error: error.message
       });
     }
   }
@@ -308,15 +308,15 @@ export class AdminController {
       const { id } = req.params;
       const organizationId = req.user.organizationId;
 
-      const scholar = await Scholar.findOneAndDelete({ 
-        _id: id, 
-        organizationId 
+      const scholar = await Scholar.findOneAndDelete({
+        _id: id,
+        organizationId
       });
 
       if (!scholar) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Scholar not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Scholar not found'
         });
       }
 
@@ -329,9 +329,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Delete scholar error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to delete scholar' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to delete scholar'
       });
     }
   }
@@ -347,8 +347,8 @@ export class AdminController {
       if (endDate) dateFilter.$lte = new Date(endDate);
 
       const attendanceData = await Attendance.aggregate([
-        { 
-          $match: { 
+        {
+          $match: {
             organizationId,
             ...(Object.keys(dateFilter).length && { date: dateFilter })
           }
@@ -356,9 +356,9 @@ export class AdminController {
         {
           $group: {
             _id: {
-              $dateToString: { 
-                format: type === 'monthly' ? '%Y-%m' : '%Y-%m-%d', 
-                date: '$date' 
+              $dateToString: {
+                format: type === 'monthly' ? '%Y-%m' : '%Y-%m-%d',
+                date: '$date'
               }
             },
             count: { $sum: 1 },
@@ -378,9 +378,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Get reports error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to generate reports' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to generate reports'
       });
     }
   }
@@ -392,7 +392,7 @@ export class AdminController {
       const organizationId = req.user.organizationId;
 
       const query = { organizationId };
-      
+
       if (date) {
         const startDate = new Date(date);
         startDate.setHours(0, 0, 0, 0);
@@ -424,9 +424,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Attendance report error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to get attendance report' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get attendance report'
       });
     }
   }
@@ -441,9 +441,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Export error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to export report' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to export report'
       });
     }
   }
@@ -452,7 +452,7 @@ export class AdminController {
   async getAnalytics(req, res) {
     try {
       const organizationId = req.user.organizationId;
-      
+
       // Last 30 days analytics
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -501,9 +501,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Analytics error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to get analytics' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get analytics'
       });
     }
   }
@@ -548,9 +548,9 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Trends error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to get trends' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get trends'
       });
     }
   }
@@ -563,9 +563,9 @@ export class AdminController {
       const [totalScholars, totalAttendance, activeScholars] = await Promise.all([
         Scholar.countDocuments({ organizationId }),
         Attendance.countDocuments({ organizationId }),
-        Scholar.countDocuments({ 
-          organizationId, 
-          status: 'active' 
+        Scholar.countDocuments({
+          organizationId,
+          status: 'active'
         })
       ]);
 
@@ -575,15 +575,69 @@ export class AdminController {
           totalScholars,
           activeScholars,
           totalAttendance,
-          averageAttendancePerDay: totalAttendance > 0 ? 
+          averageAttendancePerDay: totalAttendance > 0 ?
             Math.round(totalAttendance / 30) : 0
         }
       });
     } catch (error) {
       logger.error('Stats error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to get stats' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get stats'
+      });
+    }
+  }
+
+  async getAttendanceReports(req, res) {
+    try {
+      const organizationId = req.user.organizationId;
+      const { startDate, endDate, scholarId } = req.query;
+
+      let query = { organizationId };
+
+      // Add date filter if provided
+      if (startDate || endDate) {
+        query.date = {};
+        if (startDate) query.date.$gte = new Date(startDate);
+        if (endDate) query.date.$lte = new Date(endDate);
+      }
+
+      // Add scholar filter if provided
+      if (scholarId) {
+        query.scholarId = scholarId;
+      }
+
+      const attendanceRecords = await Attendance.find(query)
+        .populate('scholarId', 'personalInfo.name scholarId academicInfo')
+        .sort({ date: -1 })
+        .limit(100);
+
+      res.json({
+        success: true,
+        records: attendanceRecords
+      });
+    } catch (error) {
+      logger.error('Get attendance reports error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get attendance reports'
+      });
+    }
+  }
+
+  // Export reports
+  async exportReports(req, res) {
+    try {
+      // This is a placeholder - implement CSV/PDF export logic
+      res.json({
+        success: true,
+        message: 'Export functionality to be implemented'
+      });
+    } catch (error) {
+      logger.error('Export reports error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to export reports'
       });
     }
   }

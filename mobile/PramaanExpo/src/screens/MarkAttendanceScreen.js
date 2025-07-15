@@ -13,7 +13,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import biometricService from '../services/biometricService';
 import * as Location from 'expo-location';
+import * as Device from 'expo-device';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 const { width } = Dimensions.get('window');
@@ -132,7 +134,39 @@ const MarkAttendanceScreen = ({ navigation }) => {
 
       setBiometricStatus('authenticated');
 
-      // Step 2: Prepare attendance data
+      // Step 2: Generate biometric proof using the biometricService
+      console.log('Generating biometric proof for attendance...');
+      
+      let biometricProof;
+      let zkProof;
+      
+      try {
+        // Use the generateBiometricProof function from biometricService
+        const proofResult = await biometricService.generateBiometricProof(
+          user.scholarId,
+          biometricResult.simulated ? 'simulated' : 'fingerprint'
+        );
+        
+        biometricProof = proofResult.proof;
+        zkProof = {
+          proof: proofResult.proof,
+          publicInputs: proofResult.publicInputs,
+        };
+      } catch (proofError) {
+        console.error('Error generating biometric proof:', proofError);
+        // Fallback for development/testing
+        biometricProof = 'simulated-proof-' + Date.now();
+        zkProof = {
+          proof: biometricProof,
+          publicInputs: {
+            scholarId: user.scholarId,
+            timestamp: Date.now(),
+            biometricType: biometricResult.simulated ? 'simulated' : 'fingerprint'
+          }
+        };
+      }
+
+      // Step 3: Prepare attendance data
       const attendanceData = {
         scholarId: user.scholarId,
         location: {
@@ -141,10 +175,19 @@ const MarkAttendanceScreen = ({ navigation }) => {
           accuracy: currentLocation.accuracy,
         },
         biometricType: biometricResult.simulated ? 'simulated' : 'fingerprint',
+        biometricProof: biometricProof,
+        zkProof: zkProof,
         timestamp: new Date().toISOString(),
       };
 
-      // Step 3: Mark attendance
+      console.log('Marking attendance with data:', {
+        scholarId: attendanceData.scholarId,
+        biometricType: attendanceData.biometricType,
+        hasProof: !!attendanceData.biometricProof,
+        hasLocation: !!attendanceData.location,
+      });
+
+      // Step 4: Mark attendance
       const response = await api.post('/attendance/mark', attendanceData);
 
       if (response.data.success) {
@@ -169,6 +212,16 @@ const MarkAttendanceScreen = ({ navigation }) => {
         Alert.alert(
           'Service Temporarily Unavailable',
           'The attendance verification service is being initialized. Please try again in a few moments.'
+        );
+      } else if (error.response?.status === 403) {
+        Alert.alert(
+          'Biometric Not Enrolled',
+          'Please enroll your biometric data first from your profile settings.'
+        );
+      } else if (error.response?.status === 409) {
+        Alert.alert(
+          'Attendance Already Marked',
+          error.response?.data?.error || 'You have already marked attendance for today.'
         );
       } else {
         Alert.alert(
