@@ -6,46 +6,48 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pramaan.expo"
+      "bundleIdentifier": "com.pramaan.attendance",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to scan QR codes for attendance verification.",
+        "NSFaceIDUsageDescription": "This app uses Face ID for secure biometric authentication."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#ffffff"
       },
-      "package": "com.pramaan.expo",
-      "usesCleartextTraffic": true,
+      "package": "com.pramaan.attendance",
       "permissions": [
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
         "USE_FINGERPRINT",
-        "USE_BIOMETRIC",
-        "CAMERA"
+        "USE_BIOMETRIC"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-location",
-      "expo-camera"
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "your-project-id"
-      }
-    }
+      [
+        "expo-barcode-scanner",
+        {
+          "cameraPermission": "Allow Pramaan to access camera for QR scanning."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Pramaan to use Face ID for authentication."
+        }
+      ]
+    ]
   }
 }

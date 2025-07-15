@@ -237,6 +237,34 @@ class BiometricService {
   }
 
   /**
+   * Check if biometric is enrolled for a scholar
+   * This is the missing method that was causing the error
+   */
+  async checkEnrollment(scholarId) {
+    try {
+      // Check local enrollment status
+      const isEnrolled = await this.isBiometricEnrolled(scholarId);
+      
+      // Check if biometric data exists
+      const biometricData = await this.getBiometricData(scholarId);
+      
+      return {
+        success: true,
+        isEnrolled: isEnrolled && biometricData !== null,
+        hasFingerprint: biometricData?.fingerprintCommitment ? true : false,
+        hasFace: biometricData?.faceCommitment ? true : false,
+      };
+    } catch (error) {
+      console.error('Check enrollment error:', error);
+      return {
+        success: false,
+        isEnrolled: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Generate biometric proof for attendance marking
    * This creates a ZKP-style proof that the current biometric matches the enrolled one
    */

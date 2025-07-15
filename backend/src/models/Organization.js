@@ -124,6 +124,19 @@ const organizationSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  zkpKeys: {
+    verificationKey: {
+      type: Object,
+      required: false
+    },
+    keyVersion: {
+      type: Number,
+      default: 1
+    },
+    generatedAt: {
+      type: Date
+    }
   }
 }, {
   timestamps: true
@@ -143,34 +156,34 @@ organizationSchema.virtual('scholarCount', {
 });
 
 // Methods
-organizationSchema.methods.canAddMoreScholars = function() {
+organizationSchema.methods.canAddMoreScholars = function () {
   return this.stats.totalScholars < this.subscription.scholarLimit;
 };
 
-organizationSchema.methods.isSubscriptionActive = function() {
-  return this.subscription.isActive && 
-         this.subscription.endDate > new Date();
+organizationSchema.methods.isSubscriptionActive = function () {
+  return this.subscription.isActive &&
+    this.subscription.endDate > new Date();
 };
 
 // Update stats
-organizationSchema.methods.updateStats = async function() {
+organizationSchema.methods.updateStats = async function () {
   const Scholar = mongoose.model('Scholar');
-  const totalScholars = await Scholar.countDocuments({ 
-    organizationId: this._id 
+  const totalScholars = await Scholar.countDocuments({
+    organizationId: this._id
   });
-  const activeScholars = await Scholar.countDocuments({ 
+  const activeScholars = await Scholar.countDocuments({
     organizationId: this._id,
     status: 'active'
   });
-  
+
   this.stats.totalScholars = totalScholars;
   this.stats.activeScholars = activeScholars;
-  
+
   return this.save();
 };
 
 // Pre-save middleware
-organizationSchema.pre('save', function(next) {
+organizationSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   next();
 });

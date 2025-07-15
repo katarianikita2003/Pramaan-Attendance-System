@@ -116,6 +116,34 @@ const scholarSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  biometricEnrollment: {
+    fingerprint: {
+      commitment: {
+        type: String,
+        select: false // Don't return commitment by default for security
+      },
+      enrolledAt: Date,
+      isActive: {
+        type: Boolean,
+        default: false
+      }
+    },
+    face: {
+      commitment: {
+        type: String,
+        select: false // Don't return commitment by default for security
+      },
+      enrolledAt: Date,
+      isActive: {
+        type: Boolean,
+        default: false
+      }
+    }
+  },
+  isBiometricEnrolled: {
+    type: Boolean,
+    default: false
+  },
   settings: {
     notifications: {
       email: { type: Boolean, default: true },
@@ -137,24 +165,33 @@ scholarSchema.index({ 'personalInfo.email': 1 });
 scholarSchema.index({ organizationId: 1, status: 1 });
 
 // Virtual for full name
-scholarSchema.virtual('fullName').get(function() {
+scholarSchema.virtual('fullName').get(function () {
   return this.personalInfo.name;
 });
 
 // Method to compare password
-scholarSchema.methods.comparePassword = async function(candidatePassword) {
+scholarSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.credentials.passwordHash);
 };
 
+// Method to check biometric enrollment status
+scholarSchema.methods.checkBiometricEnrollment = function() {
+  return {
+    isEnrolled: this.isBiometricEnrolled,
+    hasFingerprint: this.biometricEnrollment?.fingerprint?.isActive || false,
+    hasFace: this.biometricEnrollment?.face?.isActive || false
+  };
+};
+
 // Method to set password
-scholarSchema.methods.setPassword = async function(plainPassword) {
+scholarSchema.methods.setPassword = async function (plainPassword) {
   const salt = await bcrypt.genSalt(10);
   this.credentials.passwordHash = await bcrypt.hash(plainPassword, salt);
   this.credentials.passwordChangedAt = new Date();
 };
 
 // Method to update attendance stats
-scholarSchema.methods.updateAttendanceStats = async function() {
+scholarSchema.methods.updateAttendanceStats = async function () {
   const Attendance = mongoose.model('Attendance');
   const attendanceCount = await Attendance.countDocuments({
     scholarId: this._id,
@@ -171,10 +208,10 @@ scholarSchema.methods.updateAttendanceStats = async function() {
 };
 
 // Method to add device
-scholarSchema.methods.addDevice = function(deviceInfo) {
+scholarSchema.methods.addDevice = function (deviceInfo) {
   // Remove existing device with same ID
   this.devices = this.devices.filter(d => d.deviceId !== deviceInfo.deviceId);
-  
+
   // Add new device
   this.devices.push({
     ...deviceInfo,

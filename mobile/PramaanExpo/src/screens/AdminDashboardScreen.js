@@ -72,7 +72,6 @@ const AdminDashboardScreen = ({ navigation }) => {
   };
 
   const handleLogout = () => {
-    // Use Alert instead of Dialog to avoid the error
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
@@ -158,7 +157,7 @@ const AdminDashboardScreen = ({ navigation }) => {
             value={stats.totalScholars}
             icon="people"
             color="#6C63FF"
-            onPress={() => navigation.navigate('Scholars')}
+            onPress={() => navigation.navigate('ScholarsList')}
           />
           <StatCard
             title="Present Today"
@@ -202,10 +201,10 @@ const AdminDashboardScreen = ({ navigation }) => {
             <Button
               mode="outlined"
               icon="qrcode-scan"
-              onPress={() => navigation.navigate('ScanQR')}
+              onPress={() => navigation.navigate('QRScanner')}
               style={styles.actionButton}
             >
-              Scan QR Code
+              Scan Attendance QR
             </Button>
           </Card.Content>
         </Card>
