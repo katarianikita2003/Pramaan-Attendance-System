@@ -9,10 +9,12 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Image,
+  Modal,
 } from 'react-native';
-import { Card, Button } from 'react-native-paper';
+import { Card, Button, Portal, Surface, Title, Paragraph, List } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialIcons as Icon } from '@expo/vector-icons';
+import { MaterialIcons as Icon, MaterialCommunityIcons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { useAuth } from '../../contexts/AuthContext';
 import biometricService from '../../services/biometricService';
@@ -32,8 +34,16 @@ const AttendanceScreen = ({ navigation }) => {
   const [todayStatus, setTodayStatus] = useState(null);
   const [checkingStatus, setCheckingStatus] = useState(true);
 
+  // Biometric enrollment states
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [enrollmentStep, setEnrollmentStep] = useState(0);
+  const [capturedFace, setCapturedFace] = useState(null);
+  const [biometricEnrolled, setBiometricEnrolled] = useState(false);
+  const [checkingEnrollment, setCheckingEnrollment] = useState(true);
+
   useEffect(() => {
     checkTodayStatus();
+    checkBiometricEnrollment();
   }, []);
 
   useEffect(() => {
@@ -55,6 +65,181 @@ const AttendanceScreen = ({ navigation }) => {
     return () => clearInterval(timer);
   }, [proofGenerated, countdown]);
 
+  const checkBiometricEnrollment = async () => {
+    try {
+      setCheckingEnrollment(true);
+      console.log('Checking biometric enrollment status for:', user.scholarId);
+
+      // First check local enrollment status
+      const localEnrolled = await biometricService.isBiometricEnrolled(user.scholarId);
+      console.log('Local enrollment status:', localEnrolled);
+
+      // Then verify with backend
+      const response = await api.get('/biometric/status');
+      console.log('Backend enrollment status:', response.data);
+
+      if (response.data.success) {
+        // FIX: Check the correct path in the response
+        const isEnrolled = response.data.enrollmentStatus?.isEnrolled ||
+          response.data.isEnrolled ||
+          (response.data.enrollmentStatus?.hasFingerprint &&
+            response.data.enrollmentStatus?.hasFace) ||
+          (response.data.hasFingerprint && response.data.hasFace);
+
+        console.log('Parsed enrollment status:', isEnrolled);
+        setBiometricEnrolled(isEnrolled);
+
+        // Sync local status with backend
+        if (isEnrolled !== localEnrolled) {
+          await biometricService.saveBiometricEnrollment(user.scholarId, isEnrolled);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking biometric enrollment:', error);
+      // Default to local status if backend check fails
+      const localEnrolled = await biometricService.isBiometricEnrolled(user.scholarId);
+      setBiometricEnrolled(localEnrolled);
+    } finally {
+      setCheckingEnrollment(false);
+    }
+  };
+
+  const handleBiometricEnrollment = async () => {
+    try {
+      setLoading(true);
+      setEnrollmentStep(1); // Face capture
+
+      // Step 1: Capture face image
+      console.log('Capturing face image...');
+      const faceImage = await biometricService.captureFace();
+
+      if (!faceImage) {
+        Alert.alert('Error', 'Failed to capture face image');
+        setLoading(false);
+        setEnrollmentStep(0);
+        return;
+      }
+
+      setCapturedFace(faceImage);
+      setEnrollmentStep(2); // Fingerprint capture
+
+      // Step 2: Authenticate with fingerprint
+      console.log('Starting fingerprint authentication...');
+      const fingerprintAuth = await biometricService.authenticateWithFingerprint();
+
+      if (!fingerprintAuth.success) {
+        Alert.alert('Error', 'Fingerprint authentication failed');
+        setLoading(false);
+        setEnrollmentStep(0);
+        setCapturedFace(null);
+        return;
+      }
+
+      setEnrollmentStep(3); // Processing
+
+      // Step 3: Generate biometric commitments
+      console.log('Generating biometric commitments...');
+      const faceCommitment = await biometricService.generateBiometricCommitment({
+        uri: faceImage.uri,
+        base64: faceImage.base64,
+        type: 'face'
+      });
+
+      const fingerprintCommitment = await biometricService.generateBiometricCommitment({
+        data: fingerprintAuth.data || fingerprintAuth.hash,
+        type: 'fingerprint'
+      });
+
+      // Step 4: Save biometric data locally first
+      const biometricData = {
+        faceCommitment: faceCommitment,
+        fingerprintCommitment: fingerprintCommitment,
+        enrolledAt: new Date().toISOString()
+      };
+
+      await biometricService.storeBiometricData(user.scholarId, biometricData);
+      console.log('Biometric data saved locally for scholar:', user.scholarId);
+
+      // Step 5: Send enrollment data to backend
+      console.log('Sending enrollment to backend...');
+
+      // Create the enrollment data that backend expects
+      const enrollmentData = {
+        type: 'fingerprint', // Required by backend
+        biometricData: {
+          faceCommitment: faceCommitment.commitment,
+          fingerprintCommitment: fingerprintCommitment.commitment,
+          faceTemplate: faceCommitment.commitment,
+          fingerprintTemplate: fingerprintCommitment.commitment
+        }
+      };
+
+      console.log('Enrollment data:', {
+        type: enrollmentData.type,
+        hasFace: !!enrollmentData.biometricData.faceCommitment,
+        hasFingerprint: !!enrollmentData.biometricData.fingerprintCommitment
+      });
+
+      // Call the backend enrollment endpoint
+      const response = await api.post('/biometric/enroll', enrollmentData, {
+        timeout: 30000,
+      });
+
+      console.log('Enrollment response:', response.data);
+
+      if (response.data.success) {
+        // CRITICAL: Update the local enrollment status FIRST
+        await biometricService.saveBiometricEnrollment(user.scholarId, true);
+
+        // Then update the component state
+        setBiometricEnrolled(true);
+        setShowEnrollModal(false);
+
+        // Reset enrollment steps
+        setEnrollmentStep(0);
+        setCapturedFace(null);
+
+        Alert.alert(
+          'Success',
+          'Biometric enrollment completed successfully! You can now mark attendance.',
+          [
+            {
+              text: 'OK',
+              onPress: async () => {
+                // Force refresh enrollment status from backend
+                await checkBiometricEnrollment();
+              }
+            }
+          ]
+        );
+      } else {
+        throw new Error(response.data.error || 'Enrollment failed');
+      }
+
+    } catch (error) {
+      console.error('Biometric enrollment error:', error);
+
+      // Reset states
+      setEnrollmentStep(0);
+      setCapturedFace(null);
+      setLoading(false);
+
+      // Show specific error message
+      let errorMessage = 'Failed to complete biometric enrollment. ';
+      if (error.response?.data?.error) {
+        errorMessage += error.response.data.error;
+      } else if (error.message) {
+        errorMessage += error.message;
+      } else {
+        errorMessage += 'Please try again.';
+      }
+
+      Alert.alert('Enrollment Error', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const checkTodayStatus = async () => {
     try {
       setCheckingStatus(true);
@@ -64,7 +249,7 @@ const AttendanceScreen = ({ navigation }) => {
       if (response.data && response.data.success) {
         // Handle the response format from enhanced controller
         const { attendance, hasCheckedIn, hasCheckedOut } = response.data;
-        
+
         const statusData = {
           checkIn: attendance?.checkIn ? {
             time: attendance.checkIn,
@@ -117,7 +302,7 @@ const AttendanceScreen = ({ navigation }) => {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      
+
       return location;
     } catch (error) {
       console.error('Error getting location:', error);
@@ -220,13 +405,13 @@ const AttendanceScreen = ({ navigation }) => {
 
         // Don't refresh status immediately - wait for admin verification
         Alert.alert(
-          'Success', 
+          'Success',
           'QR code generated! Show this to your admin to complete attendance marking.'
         );
       }
     } catch (error) {
       console.error('Generate proof error:', error);
-      
+
       // Handle specific error codes
       if (error.response?.data?.code === 'BIOMETRIC_NOT_ENROLLED') {
         Alert.alert(
@@ -234,7 +419,7 @@ const AttendanceScreen = ({ navigation }) => {
           'Please complete biometric enrollment (both fingerprint and face) before marking attendance.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Enroll Now', onPress: () => navigation.navigate('BiometricEnrollment') }
+            { text: 'Enroll Now', onPress: () => setShowEnrollModal(true) }
           ]
         );
       } else if (error.response?.data?.code === 'ALREADY_MARKED') {
@@ -248,7 +433,7 @@ const AttendanceScreen = ({ navigation }) => {
           error.response?.data?.error || error.message || 'Failed to generate attendance proof'
         );
       }
-      
+
       setError(error.response?.data?.error || error.message || 'Failed to generate proof');
     } finally {
       setLoading(false);
@@ -282,12 +467,99 @@ const AttendanceScreen = ({ navigation }) => {
     );
   };
 
-  if (checkingStatus) {
+  // Biometric Enrollment Modal
+  const BiometricEnrollmentModal = () => (
+    <Portal>
+      <Modal
+        visible={showEnrollModal}
+        onDismiss={() => !loading && setShowEnrollModal(false)}
+        contentContainerStyle={styles.modalContainer}
+      >
+        <Surface style={styles.modalContent}>
+          {enrollmentStep === 0 && (
+            <>
+              <Title style={styles.modalTitle}>Biometric Enrollment Required</Title>
+              <Paragraph style={styles.modalDescription}>
+                To mark attendance, you need to enroll your biometric data first.
+                This is a one-time process that ensures secure attendance marking.
+              </Paragraph>
+
+              <View style={styles.enrollmentSteps}>
+                <List.Item
+                  title="Step 1: Face Recognition"
+                  description="Capture your face for identity verification"
+                  left={props => <List.Icon {...props} icon="face-recognition" />}
+                />
+                <List.Item
+                  title="Step 2: Fingerprint"
+                  description="Register your fingerprint for secure authentication"
+                  left={props => <List.Icon {...props} icon="fingerprint" />}
+                />
+              </View>
+
+              <Button
+                mode="contained"
+                onPress={handleBiometricEnrollment}
+                loading={loading}
+                disabled={loading}
+                style={styles.enrollButton}
+              >
+                Start Enrollment
+              </Button>
+
+              {!loading && (
+                <Button
+                  mode="text"
+                  onPress={() => setShowEnrollModal(false)}
+                  style={styles.cancelButton}
+                >
+                  Cancel
+                </Button>
+              )}
+            </>
+          )}
+
+          {enrollmentStep === 1 && (
+            <View style={styles.stepContainer}>
+              <MaterialCommunityIcons name="face-recognition" size={80} color="#6200ea" />
+              <Title>Capturing Face...</Title>
+              <Paragraph>Please position your face in the camera</Paragraph>
+              <ActivityIndicator size="large" color="#6200ea" style={styles.loader} />
+            </View>
+          )}
+
+          {enrollmentStep === 2 && (
+            <View style={styles.stepContainer}>
+              {capturedFace && (
+                <Image source={{ uri: capturedFace.uri }} style={styles.facePreview} />
+              )}
+              <MaterialCommunityIcons name="fingerprint" size={80} color="#6200ea" />
+              <Title>Scan Your Fingerprint</Title>
+              <Paragraph>Please place your finger on the sensor</Paragraph>
+            </View>
+          )}
+
+          {enrollmentStep === 3 && (
+            <View style={styles.stepContainer}>
+              <MaterialCommunityIcons name="shield-check" size={80} color="#4caf50" />
+              <Title>Processing Enrollment...</Title>
+              <Paragraph>Securing your biometric data</Paragraph>
+              <ActivityIndicator size="large" color="#6200ea" style={styles.loader} />
+            </View>
+          )}
+        </Surface>
+      </Modal>
+    </Portal>
+  );
+
+  if (checkingStatus || checkingEnrollment) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6C63FF" />
-          <Text style={styles.loadingText}>Checking attendance status...</Text>
+          <Text style={styles.loadingText}>
+            {checkingStatus ? 'Checking attendance status...' : 'Checking enrollment status...'}
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -305,6 +577,31 @@ const AttendanceScreen = ({ navigation }) => {
             <Icon name="refresh" size={24} color="#333" />
           </TouchableOpacity>
         </View>
+
+        {/* Biometric Enrollment Status */}
+        {!biometricEnrolled && (
+          <Card style={[styles.statusCard, styles.warningCard]}>
+            <Card.Content>
+              <View style={styles.warningContent}>
+                <Icon name="warning" size={24} color="#FF9800" />
+                <View style={styles.warningTextContainer}>
+                  <Text style={styles.warningTitle}>Biometric Not Enrolled</Text>
+                  <Text style={styles.warningText}>
+                    Please complete biometric enrollment first
+                  </Text>
+                </View>
+                <Button
+                  mode="contained"
+                  onPress={() => setShowEnrollModal(true)}
+                  style={styles.enrollNowButton}
+                  compact
+                >
+                  Enroll Now
+                </Button>
+              </View>
+            </Card.Content>
+          </Card>
+        )}
 
         {/* Today's Status Card */}
         {todayStatus && (
@@ -438,7 +735,7 @@ const AttendanceScreen = ({ navigation }) => {
               mode="contained"
               onPress={generateProof}
               loading={loading}
-              disabled={loading || (attendanceType === 'checkOut' && !todayStatus?.hasCheckedIn)}
+              disabled={loading || !biometricEnrolled || (attendanceType === 'checkOut' && !todayStatus?.hasCheckedIn)}
               style={styles.generateButton}
               contentStyle={styles.generateButtonContent}
             >
@@ -490,6 +787,9 @@ const AttendanceScreen = ({ navigation }) => {
           </>
         )}
       </ScrollView>
+
+      {/* Biometric Enrollment Modal */}
+      <BiometricEnrollmentModal />
     </SafeAreaView>
   );
 };
@@ -529,6 +829,31 @@ const styles = StyleSheet.create({
   statusCard: {
     margin: 15,
     elevation: 2,
+  },
+  warningCard: {
+    borderColor: '#FF9800',
+    borderWidth: 1,
+  },
+  warningContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  warningTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  warningTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FF9800',
+  },
+  warningText: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  enrollNowButton: {
+    backgroundColor: '#FF9800',
   },
   statusTitle: {
     fontSize: 18,
@@ -687,6 +1012,49 @@ const styles = StyleSheet.create({
     marginHorizontal: 15,
     marginTop: 15,
     borderColor: '#6C63FF',
+  },
+  // Modal styles
+  modalContainer: {
+    padding: 20,
+  },
+  modalContent: {
+    padding: 20,
+    borderRadius: 10,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  modalDescription: {
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#666',
+  },
+  enrollmentSteps: {
+    marginBottom: 20,
+  },
+  enrollButton: {
+    backgroundColor: '#6200ea',
+    marginBottom: 10,
+  },
+  cancelButton: {
+    marginTop: 5,
+  },
+  stepContainer: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  loader: {
+    marginTop: 20,
+  },
+  facePreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    marginBottom: 20,
   },
 });
 
