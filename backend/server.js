@@ -23,7 +23,7 @@ import biometricRoutes from './src/routes/biometric.routes.js';
 
 
 // Import the ENHANCED attendance routes for ZKP
-import attendanceRoutes from './src/routes/attendance.routes.enhanced.js';
+import attendanceRoutes from './src/routes/attendance.routes.js';
 
 // Import middleware
 import { errorHandler } from './src/middleware/error.middleware.js';

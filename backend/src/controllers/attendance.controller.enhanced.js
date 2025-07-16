@@ -1,510 +1,421 @@
 // backend/src/controllers/attendance.controller.enhanced.js
+import mongoose from 'mongoose';
 import Attendance from '../models/Attendance.js';
 import Scholar from '../models/Scholar.js';
 import Organization from '../models/Organization.js';
+import BiometricCommitment from '../models/BiometricCommitment.js';
 import enhancedZKPService from '../services/zkp.service.enhanced.js';
+import QRCode from 'qrcode';
 import logger from '../utils/logger.js';
 
-/**
- * Enhanced Attendance Controller with QR Code Support
- */
-class AttendanceController {
-  /**
-   * Generate attendance proof and QR code for scholar
-   */
-  async generateAttendanceProof(req, res) {
-    try {
-      const { biometricData, location, attendanceType = 'checkIn' } = req.body;
-      const scholarId = req.user.scholarId;
-      const userId = req.user.id;
-      const organizationId = req.user.organizationId;
+// Generate attendance proof for QR code
+export const generateAttendanceProof = async (req, res) => {
+  try {
+    const { 
+      attendanceType = 'checkIn',
+      location,
+      biometricData 
+    } = req.body;
+    
+    const userId = req.user.id;
+    const scholarId = req.user.scholarId;
+    const organizationId = req.user.organizationId;
 
-      logger.info(`Attendance proof generation for scholar: ${scholarId}`);
+    logger.info(`Attendance proof generation for scholar: ${scholarId}`);
 
-      // Validate scholar
-      const scholar = await Scholar.findById(userId)
-        .select('+biometricEnrollment.fingerprint.commitment +biometricEnrollment.face.commitment');
-      
-      if (!scholar) {
-        return res.status(404).json({
-          success: false,
-          error: 'Scholar not found'
-        });
-      }
+    // Validate required fields
+    if (!biometricData || !location) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        missing: {
+          biometricData: !biometricData,
+          location: !location
+        }
+      });
+    }
 
-      // Check biometric enrollment - supporting multiple fields for compatibility
-      const hasEnrolledBiometric = 
-        scholar.isBiometricEnrolled || 
-        scholar.biometrics?.isEnrolled ||
-        scholar.biometricEnrollment?.fingerprint?.isActive ||
-        scholar.biometricEnrollment?.face?.isActive;
+    // Find scholar
+    const scholar = await Scholar.findById(userId);
+    if (!scholar) {
+      return res.status(404).json({
+        success: false,
+        error: 'Scholar not found'
+      });
+    }
 
-      if (!hasEnrolledBiometric) {
-        logger.warn(`Scholar ${scholarId} attempted attendance without biometric enrollment`);
-        return res.status(400).json({
-          success: false,
-          error: 'Biometric not enrolled',
-          code: 'BIOMETRIC_NOT_ENROLLED'
-        });
-      }
+    // Check if biometric is enrolled - look for biometric commitment
+    const biometricRecord = await BiometricCommitment.findOne({ 
+      userId: scholar._id,
+      status: 'active'
+    });
 
-      // Get the appropriate biometric commitment
-      let biometricCommitment;
-      const biometricType = biometricData?.type || 'fingerprint';
-      
-      if (biometricType === 'fingerprint') {
-        biometricCommitment = scholar.biometricEnrollment?.fingerprint?.commitment || 
-                            scholar.biometrics?.fingerprintCommitment;
-      } else if (biometricType === 'face') {
-        biometricCommitment = scholar.biometricEnrollment?.face?.commitment || 
-                            scholar.biometrics?.faceCommitment;
-      }
+    if (!biometricRecord || !biometricRecord.commitments?.fingerprint) {
+      logger.warn(`Scholar ${scholarId} attempted attendance without complete biometric enrollment`);
+      return res.status(400).json({
+        success: false,
+        error: 'Biometric not enrolled. Please complete biometric enrollment first.',
+        code: 'BIOMETRIC_NOT_ENROLLED'
+      });
+    }
 
-      if (!biometricCommitment) {
-        return res.status(400).json({
-          success: false,
-          error: `No ${biometricType} biometric commitment found`,
-          code: 'BIOMETRIC_COMMITMENT_NOT_FOUND'
-        });
-      }
+    // Check today's attendance
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const existingAttendance = await Attendance.findOne({
+      scholarId: scholar._id,
+      date: { $gte: today },
+      attendanceType
+    });
 
-      // Check if already marked attendance today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+    if (existingAttendance) {
+      return res.status(400).json({
+        success: false,
+        error: `${attendanceType === 'checkIn' ? 'Check-in' : 'Check-out'} already marked for today`,
+        code: 'ATTENDANCE_ALREADY_MARKED',
+        attendance: {
+          markedAt: existingAttendance.date,
+          proofId: existingAttendance.proofData?.zkProof?.proofId
+        }
+      });
+    }
 
-      const existingAttendance = await Attendance.findOne({
+    // For checkout, verify checkin exists
+    if (attendanceType === 'checkOut') {
+      const checkIn = await Attendance.findOne({
         scholarId: scholar._id,
-        type: attendanceType,
-        status: { $in: ['verified', 'pending_verification'] },
-        createdAt: { $gte: today, $lt: tomorrow }
+        date: { $gte: today },
+        attendanceType: 'checkIn'
       });
 
-      if (existingAttendance) {
+      if (!checkIn) {
         return res.status(400).json({
           success: false,
-          error: `${attendanceType} already marked for today`,
-          code: 'ATTENDANCE_ALREADY_MARKED'
+          error: 'Cannot check out without checking in first',
+          code: 'NO_CHECKIN_FOUND'
         });
       }
+    }
 
-      // Get organization and ZKP keys
-      const organization = await Organization.findById(organizationId);
-      if (!organization) {
-        return res.status(404).json({
-          success: false,
-          error: 'Organization not found'
-        });
-      }
+    // Generate ZKP proof
+    const zkpKeys = enhancedZKPService.getKeys();
+    const timestamp = Date.now();
+    
+    // Generate attendance proof using biometric data
+    const attendanceProof = await enhancedZKPService.generateAttendanceProof(
+      scholar._id.toString(),
+      biometricData.proof || biometricData.nullifier, // Use nullifier as proof
+      timestamp
+    );
 
-      let keys = enhancedZKPService.getKeys(organizationId);
-      
-      if (!keys) {
-        // Generate keys if not exists
-        keys = await enhancedZKPService.generateKeys(organizationId);
-        
-        // Store verification key in organization
-        organization.zkpKeys = {
-          verificationKey: keys.verificationKey,
-          keyVersion: 1,
-          generatedAt: new Date()
-        };
-        await organization.save();
-      }
-
-      // Generate ZKP proof with proper data structure
-      const proofData = await enhancedZKPService.generateProof(
-        biometricData,  // Pass the full biometric data object
-        biometricCommitment,  // Pass the commitment string
-        keys.provingKey
+    // Get organization for location verification
+    const organization = await Organization.findById(organizationId);
+    
+    // Verify location if organization has location settings
+    let locationValid = true;
+    let locationProof = null;
+    
+    if (organization?.settings?.locationTracking?.enabled && organization.location) {
+      locationProof = await enhancedZKPService.generateLocationProof(
+        location,
+        organization.location
       );
+      locationValid = locationProof.isValid;
+    }
 
-      // Generate unique proof ID
-      const proofId = `${scholarId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Generate QR code data
+    const qrData = await enhancedZKPService.generateAttendanceQR({
+      proofId: attendanceProof.proofId,
+      scholarId: scholar.scholarId,
+      organizationId,
+      timestamp,
+      attendanceType,
+      locationValid
+    });
 
-      // Generate QR code data
-      const qrData = {
-        proofId,
-        scholarId,
-        proof: proofData.proof,
-        publicSignals: proofData.publicSignals,
-        timestamp: Date.now(),
-        type: attendanceType,
-        organizationId
-      };
+    // Generate QR code image
+    const qrCodeImage = await QRCode.toDataURL(qrData.qrData, {
+      width: 300,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
 
-      // Generate QR code
-      const qrResult = await enhancedZKPService.generateAttendanceQR(
-        scholarId,
-        proofData.proof,
-        proofData.publicSignals,
-        proofId
-      );
-
-      // Create attendance record in pending state
-      const attendance = new Attendance({
-        scholarId: scholar._id,
-        organizationId,
-        proofId,
-        type: attendanceType,
-        status: 'pending_verification',
+    // Create attendance record
+    const attendance = new Attendance({
+      scholarId: scholar._id,
+      organizationId,
+      date: new Date(),
+      attendanceType,
+      status: 'pending', // Will be marked as 'present' after QR scan
+      proofData: {
+        zkProof: attendanceProof,
         location: location ? {
-          type: 'Point',
-          coordinates: location.coordinates || [0, 0],
+          latitude: location.latitude,
+          longitude: location.longitude,
           accuracy: location.accuracy,
           timestamp: new Date()
-        } : undefined,
-        proofData: {
-          zkProof: {
-            proof: proofData.proof,
-            publicSignals: proofData.publicSignals,
-            proofId,
-            expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
-          }
-        },
-        deviceInfo: req.body.deviceInfo || {},
-        biometricType: biometricType
-      });
+        } : null,
+        verificationMethod: 'biometric_zkp',
+        qrData: qrData.qrData
+      },
+      metadata: {
+        checkInTime: attendanceType === 'checkIn' ? new Date() : undefined,
+        checkOutTime: attendanceType === 'checkOut' ? new Date() : undefined,
+        isLate: false,
+        biometricVerified: true,
+        locationValid,
+        qrGenerated: true
+      }
+    });
 
-      await attendance.save();
+    await attendance.save();
 
-      logger.info(`Attendance proof generated for scholar ${scholarId}, proofId: ${proofId}`);
+    logger.info(`Attendance proof generated successfully for scholar ${scholarId}`);
 
-      res.json({
-        success: true,
-        data: {
-          qrCode: qrResult.qrCode,
-          proofId,
-          expiresAt: qrResult.expiresAt,
-          attendanceId: attendance._id,
-          type: attendanceType
-        }
-      });
+    res.json({
+      success: true,
+      message: 'Attendance proof generated successfully',
+      data: {
+        qrCode: qrCodeImage,
+        proofId: attendanceProof.proofId,
+        expiresAt: qrData.expiresAt,
+        attendanceId: attendance._id,
+        type: attendanceType,
+        locationValid
+      }
+    });
 
-    } catch (error) {
-      logger.error('Generate attendance proof error:', error);
-      res.status(500).json({
+  } catch (error) {
+    logger.error('Generate attendance proof error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate attendance proof',
+      details: error.message
+    });
+  }
+};
+
+// Verify scanned QR code and mark attendance
+export const verifyQRAttendance = async (req, res) => {
+  try {
+    const { qrData } = req.body;
+    const adminOrgId = req.user.organizationId;
+
+    if (!qrData) {
+      return res.status(400).json({
         success: false,
-        error: 'Failed to generate attendance proof',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        error: 'QR data is required'
       });
     }
-  }
 
-  /**
-   * Verify attendance proof from QR code (Admin function)
-   */
-  async verifyAttendanceQR(req, res) {
+    // Decode QR data
+    let decodedData;
     try {
-      const { qrData } = req.body;
-      const adminOrganizationId = req.user.organizationId;
-
-      logger.info('Admin verifying attendance QR code');
-
-      // Parse and verify QR code format
-      let qrContent;
-      try {
-        qrContent = typeof qrData === 'string' ? JSON.parse(qrData) : qrData;
-      } catch (error) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid QR code format'
-        });
-      }
-
-      // Verify QR code hasn't expired
-      const qrTimestamp = qrContent.timestamp;
-      const currentTime = Date.now();
-      const fiveMinutes = 5 * 60 * 1000;
-
-      if (currentTime - qrTimestamp > fiveMinutes) {
-        return res.status(400).json({
-          success: false,
-          error: 'QR code has expired',
-          code: 'QR_EXPIRED'
-        });
-      }
-
-      // Verify organization match
-      if (qrContent.organizationId !== adminOrganizationId) {
-        return res.status(403).json({
-          success: false,
-          error: 'QR code is from a different organization'
-        });
-      }
-
-      // Find the scholar
-      const scholar = await Scholar.findOne({ 
-        scholarId: qrContent.scholarId,
-        organizationId: adminOrganizationId
+      const decoded = Buffer.from(qrData, 'base64').toString('utf-8');
+      decodedData = JSON.parse(decoded);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid QR code format'
       });
+    }
 
-      if (!scholar) {
-        return res.status(404).json({
-          success: false,
-          error: 'Scholar not found in this organization'
-        });
-      }
+    // Find the attendance record by proof ID
+    const attendance = await Attendance.findOne({
+      'proofData.zkProof.proofId': decodedData.id
+    }).populate('scholarId', 'scholarId personalInfo.name');
 
-      // Get organization verification key
-      const organization = await Organization.findById(adminOrganizationId);
-      if (!organization.zkpKeys || !organization.zkpKeys.verificationKey) {
-        return res.status(400).json({
-          success: false,
-          error: 'Organization verification key not found'
-        });
-      }
-
-      // Verify the ZKP proof
-      const isValidProof = await enhancedZKPService.verifyProof(
-        qrContent.proof,
-        qrContent.publicSignals,
-        organization.zkpKeys.verificationKey
-      );
-
-      if (!isValidProof) {
-        logger.warn(`Invalid proof attempt for scholar ${qrContent.scholarId}`);
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid attendance proof'
-        });
-      }
-
-      // Find the attendance record
-      const attendance = await Attendance.findOne({
-        scholarId: scholar._id,
-        proofId: qrContent.proofId,
-        status: 'pending_verification'
+    if (!attendance) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invalid or expired QR code'
       });
+    }
 
-      if (!attendance) {
-        return res.status(404).json({
-          success: false,
-          error: 'Attendance record not found or already verified'
-        });
-      }
+    // Verify organization matches
+    if (attendance.organizationId.toString() !== adminOrgId) {
+      return res.status(403).json({
+        success: false,
+        error: 'This QR code belongs to a different organization'
+      });
+    }
 
-      // Update attendance status
-      attendance.status = 'verified';
-      attendance.verifiedBy = req.user.id;
-      attendance.verifiedAt = new Date();
-      attendance.verificationDetails = {
-        method: 'qr_scan',
-        adminId: req.user.id,
-        verificationLocation: req.body.location || null
-      };
-      
-      await attendance.save();
+    // Check if already verified
+    if (attendance.status === 'present') {
+      return res.status(400).json({
+        success: false,
+        error: 'This attendance has already been verified',
+        attendance: {
+          scholarName: attendance.scholarId.personalInfo.name,
+          scholarId: attendance.scholarId.scholarId,
+          markedAt: attendance.date,
+          type: attendance.attendanceType
+        }
+      });
+    }
 
-      // Update scholar's attendance stats
+    // Verify the ZKP proof
+    const isValidProof = await enhancedZKPService.verifyAttendanceProof(
+      attendance.proofData.zkProof
+    );
+
+    if (!isValidProof) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid attendance proof'
+      });
+    }
+
+    // Check expiry (5 minutes)
+    const proofAge = Date.now() - attendance.date.getTime();
+    if (proofAge > 5 * 60 * 1000) {
+      return res.status(400).json({
+        success: false,
+        error: 'QR code has expired. Please generate a new one.'
+      });
+    }
+
+    // Update attendance status
+    attendance.status = 'present';
+    attendance.metadata.verifiedAt = new Date();
+    attendance.metadata.verifiedBy = req.user.id;
+    await attendance.save();
+
+    // Update scholar stats
+    const scholar = attendance.scholarId;
+    if (attendance.attendanceType === 'checkIn' && scholar) {
       await scholar.updateAttendanceStats();
-
-      logger.info(`Attendance verified for scholar ${scholar.scholarId} by admin ${req.user.id}`);
-
-      // Return success with scholar details
-      res.json({
-        success: true,
-        data: {
-          scholar: {
-            id: scholar._id,
-            scholarId: scholar.scholarId,
-            name: scholar.personalInfo.name,
-            department: scholar.academicInfo.department,
-            course: scholar.academicInfo.course,
-            year: scholar.academicInfo.year
-          },
-          attendance: {
-            id: attendance._id,
-            type: attendance.type,
-            timestamp: attendance.createdAt,
-            verifiedAt: attendance.verifiedAt
-          },
-          message: `${attendance.type} verified successfully`
-        }
-      });
-
-    } catch (error) {
-      logger.error('Verify attendance QR error:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to verify attendance',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
     }
-  }
 
-  /**
-   * Get pending verifications for admin
-   */
-  async getPendingVerifications(req, res) {
-    try {
-      const organizationId = req.user.organizationId;
-      const { page = 1, limit = 20 } = req.query;
-      const skip = (page - 1) * limit;
+    logger.info(`QR attendance verified for scholar ${scholar.scholarId}`);
 
-      const pendingAttendances = await Attendance.find({
-        organizationId,
-        status: 'pending_verification',
-        'proofData.zkProof.expiresAt': { $gt: new Date() }
-      })
-      .populate('scholarId', 'scholarId personalInfo academicInfo')
-      .sort('-createdAt')
-      .skip(skip)
-      .limit(parseInt(limit));
-
-      const total = await Attendance.countDocuments({
-        organizationId,
-        status: 'pending_verification',
-        'proofData.zkProof.expiresAt': { $gt: new Date() }
-      });
-
-      res.json({
-        success: true,
-        data: {
-          attendances: pendingAttendances.map(att => ({
-            id: att._id,
-            proofId: att.proofId,
-            scholar: {
-              id: att.scholarId._id,
-              scholarId: att.scholarId.scholarId,
-              name: att.scholarId.personalInfo.name,
-              department: att.scholarId.academicInfo.department
-            },
-            type: att.type,
-            timestamp: att.createdAt,
-            expiresAt: att.proofData.zkProof.expiresAt,
-            location: att.location
-          })),
-          pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total,
-            pages: Math.ceil(total / limit)
-          }
-        }
-      });
-
-    } catch (error) {
-      logger.error('Get pending verifications error:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to fetch pending verifications'
-      });
-    }
-  }
-
-  /**
-   * Get attendance history with verification status
-   */
-  async getAttendanceHistory(req, res) {
-    try {
-      const userId = req.user.id;
-      const { startDate, endDate, status, type, page = 1, limit = 20 } = req.query;
-      const skip = (page - 1) * limit;
-
-      const query = { scholarId: userId };
-      
-      if (startDate || endDate) {
-        query.createdAt = {};
-        if (startDate) query.createdAt.$gte = new Date(startDate);
-        if (endDate) query.createdAt.$lte = new Date(endDate);
+    res.json({
+      success: true,
+      message: 'Attendance verified successfully',
+      attendance: {
+        scholarName: scholar.personalInfo.name,
+        scholarId: scholar.scholarId,
+        type: attendance.attendanceType,
+        markedAt: attendance.date,
+        locationValid: attendance.metadata.locationValid,
+        biometricVerified: attendance.metadata.biometricVerified
       }
+    });
 
-      if (status) {
-        query.status = status;
-      }
-
-      if (type) {
-        query.type = type;
-      }
-
-      const attendances = await Attendance.find(query)
-        .populate('verifiedBy', 'personalInfo.name')
-        .sort('-createdAt')
-        .skip(skip)
-        .limit(parseInt(limit));
-
-      const total = await Attendance.countDocuments(query);
-
-      res.json({
-        success: true,
-        data: {
-          attendances: attendances.map(att => ({
-            id: att._id,
-            type: att.type,
-            status: att.status,
-            timestamp: att.createdAt,
-            verifiedAt: att.verifiedAt,
-            verifiedBy: att.verifiedBy ? att.verifiedBy.personalInfo.name : null,
-            location: att.location,
-            proofId: att.proofId,
-            biometricType: att.biometricType
-          })),
-          pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total,
-            pages: Math.ceil(total / limit)
-          }
-        }
-      });
-
-    } catch (error) {
-      logger.error('Get attendance history error:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to fetch attendance history'
-      });
-    }
+  } catch (error) {
+    logger.error('Verify QR attendance error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to verify attendance',
+      details: error.message
+    });
   }
+};
 
-  /**
-   * Get today's attendance status for scholar
-   */
-  async getTodayStatus(req, res) {
-    try {
-      const userId = req.user.id;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+// Get today's attendance status
+export const getTodayStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-      const attendances = await Attendance.find({
-        scholarId: userId,
-        createdAt: { $gte: today, $lt: tomorrow }
-      }).sort('createdAt');
+    const attendance = await Attendance.find({
+      scholarId: userId,
+      date: { $gte: today }
+    }).sort({ date: -1 });
 
-      const checkIn = attendances.find(a => a.type === 'checkIn');
-      const checkOut = attendances.find(a => a.type === 'checkOut');
+    const checkIn = attendance.find(a => a.attendanceType === 'checkIn');
+    const checkOut = attendance.find(a => a.attendanceType === 'checkOut');
 
-      res.json({
-        success: true,
-        data: {
-          date: today,
-          checkIn: checkIn ? {
-            time: checkIn.createdAt,
-            status: checkIn.status,
-            verifiedAt: checkIn.verifiedAt
-          } : null,
-          checkOut: checkOut ? {
-            time: checkOut.createdAt,
-            status: checkOut.status,
-            verifiedAt: checkOut.verifiedAt
-          } : null,
-          canMarkCheckIn: !checkIn,
-          canMarkCheckOut: checkIn && checkIn.status === 'verified' && !checkOut
-        }
-      });
+    res.json({
+      success: true,
+      attendance: {
+        checkIn: checkIn?.date || null,
+        checkOut: checkOut?.date || null,
+        status: checkIn?.status || 'absent',
+        checkInProofId: checkIn?.proofData?.zkProof?.proofId,
+        checkOutProofId: checkOut?.proofData?.zkProof?.proofId
+      },
+      // Also include new format for compatibility
+      hasCheckedIn: !!checkIn,
+      hasCheckedOut: !!checkOut,
+      checkInTime: checkIn?.date,
+      checkOutTime: checkOut?.date,
+      checkInProofId: checkIn?.proofData?.zkProof?.proofId,
+      checkOutProofId: checkOut?.proofData?.zkProof?.proofId,
+      status: checkIn?.status || 'absent'
+    });
 
-    } catch (error) {
-      logger.error('Get today status error:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to fetch today\'s status'
-      });
-    }
+  } catch (error) {
+    logger.error('Get today status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get attendance status'
+    });
   }
-}
+};
 
-export default new AttendanceController();
+// Get attendance history
+export const getAttendanceHistory = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { page = 1, limit = 10, month, year } = req.query;
+
+    const query = { scholarId: userId };
+
+    // Add date filters if provided
+    if (month && year) {
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0);
+      query.date = { $gte: startDate, $lte: endDate };
+    }
+
+    const total = await Attendance.countDocuments(query);
+    const attendance = await Attendance.find(query)
+      .sort({ date: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .populate('organizationId', 'name');
+
+    res.json({
+      success: true,
+      attendance: attendance.map(record => ({
+        id: record._id,
+        date: record.date,
+        type: record.attendanceType,
+        status: record.status,
+        checkInTime: record.metadata.checkInTime,
+        checkOutTime: record.metadata.checkOutTime,
+        organization: record.organizationId?.name,
+        proofId: record.proofData?.zkProof?.proofId,
+        locationValid: record.metadata.locationValid,
+        biometricVerified: record.metadata.biometricVerified
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+
+  } catch (error) {
+    logger.error('Get attendance history error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get attendance history'
+    });
+  }
+};
+
+// Export all functions
+export default {
+  generateAttendanceProof,
+  verifyQRAttendance,
+  getTodayStatus,
+  getAttendanceHistory
+};

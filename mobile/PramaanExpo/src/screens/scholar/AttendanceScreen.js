@@ -54,17 +54,43 @@ const AttendanceScreen = ({ navigation }) => {
   const checkTodayStatus = async () => {
     try {
       const response = await api.get('/attendance/today-status');
+      console.log('Today status response:', response.data);
+
       if (response.data.success) {
-        setTodayStatus(response.data.data);
+        // The enhanced controller returns the data directly in response.data
+        // with fields like hasCheckedIn, hasCheckedOut, checkInTime, checkOutTime
+        const statusData = {
+          checkIn: response.data.checkInTime ? {
+            time: response.data.checkInTime,
+            proofId: response.data.checkInProofId
+          } : null,
+          checkOut: response.data.checkOutTime ? {
+            time: response.data.checkOutTime,
+            proofId: response.data.checkOutProofId
+          } : null,
+          status: response.data.status || 'absent'
+        };
+
+        setTodayStatus(statusData);
+
         // Set attendance type based on today's status
-        if (!response.data.data.checkIn) {
+        if (!statusData.checkIn) {
           setAttendanceType('checkIn');
-        } else if (response.data.data.checkIn && !response.data.data.checkOut) {
+        } else if (statusData.checkIn && !statusData.checkOut) {
           setAttendanceType('checkOut');
         }
       }
     } catch (error) {
-      console.log('Error checking today status:', error);
+      console.error('Error checking today status:', error);
+      // If it's a 404, it means no attendance today
+      if (error.response?.status === 404) {
+        setTodayStatus({
+          checkIn: null,
+          checkOut: null,
+          status: 'absent'
+        });
+        setAttendanceType('checkIn');
+      }
     }
   };
 
@@ -85,14 +111,14 @@ const AttendanceScreen = ({ navigation }) => {
 
       // Authenticate with biometric
       const authResult = await biometricService.authenticateWithFingerprint();
-      
+
       if (!authResult.success) {
         throw new Error(authResult.error || 'Biometric authentication failed');
       }
 
       // Get stored biometric data to access nullifier
       const storedBiometricData = await biometricService.getBiometricData(user.scholarId);
-      
+
       if (!storedBiometricData || !storedBiometricData.fingerprintCommitment) {
         throw new Error('No biometric enrollment found. Please enroll first.');
       }
@@ -121,9 +147,9 @@ const AttendanceScreen = ({ navigation }) => {
         proof: biometricProof.proof,
         publicInputs: biometricProof.publicInputs,
         // Include nullifier from stored commitment
-        nullifier: storedBiometricData.fingerprintCommitment.nullifier || 
-                  storedBiometricData.faceCommitment?.nullifier ||
-                  'temp-nullifier-' + Date.now(), // Fallback
+        nullifier: storedBiometricData.fingerprintCommitment.nullifier ||
+          storedBiometricData.faceCommitment?.nullifier ||
+          'temp-nullifier-' + Date.now(), // Fallback
         timestamp: Date.now()
       };
 
@@ -133,7 +159,7 @@ const AttendanceScreen = ({ navigation }) => {
         hasNullifier: !!biometricData.nullifier,
         hasProof: !!biometricData.proof
       });
-      
+
       const response = await api.post('/attendance/generate-proof', {
         biometricData,
         location,
@@ -146,16 +172,16 @@ const AttendanceScreen = ({ navigation }) => {
 
       if (response.data.success) {
         const { qrCode, proofId, expiresAt, attendanceId } = response.data.data;
-        
+
         setProofData({
           proofId,
           attendanceId,
           type: attendanceType
         });
-        
+
         setQrValue(qrCode);
         setProofGenerated(true);
-        
+
         // Calculate countdown from expiry time
         const expiryTime = new Date(expiresAt);
         const now = new Date();
@@ -209,29 +235,29 @@ const AttendanceScreen = ({ navigation }) => {
               <Text style={styles.statusTitle}>Today's Attendance</Text>
               <View style={styles.statusRow}>
                 <View style={styles.statusItem}>
-                  <Icon 
-                    name="login" 
-                    size={24} 
-                    color={todayStatus.checkIn ? "#4CAF50" : "#9E9E9E"} 
+                  <Icon
+                    name="login"
+                    size={24}
+                    color={todayStatus.checkIn ? "#4CAF50" : "#9E9E9E"}
                   />
                   <Text style={styles.statusLabel}>Check-in</Text>
                   <Text style={styles.statusTime}>
-                    {todayStatus.checkIn ? 
-                      new Date(todayStatus.checkIn.time).toLocaleTimeString() : 
+                    {todayStatus.checkIn ?
+                      new Date(todayStatus.checkIn.time).toLocaleTimeString() :
                       '--:--'
                     }
                   </Text>
                 </View>
                 <View style={styles.statusItem}>
-                  <Icon 
-                    name="logout" 
-                    size={24} 
-                    color={todayStatus.checkOut ? "#4CAF50" : "#9E9E9E"} 
+                  <Icon
+                    name="logout"
+                    size={24}
+                    color={todayStatus.checkOut ? "#4CAF50" : "#9E9E9E"}
                   />
                   <Text style={styles.statusLabel}>Check-out</Text>
                   <Text style={styles.statusTime}>
-                    {todayStatus.checkOut ? 
-                      new Date(todayStatus.checkOut.time).toLocaleTimeString() : 
+                    {todayStatus.checkOut ?
+                      new Date(todayStatus.checkOut.time).toLocaleTimeString() :
                       '--:--'
                     }
                   </Text>
@@ -257,10 +283,10 @@ const AttendanceScreen = ({ navigation }) => {
                     onPress={() => !todayStatus?.checkIn && setAttendanceType('checkIn')}
                     disabled={todayStatus?.checkIn}
                   >
-                    <Icon 
-                      name="login" 
-                      size={24} 
-                      color={attendanceType === 'checkIn' ? "#fff" : "#6C63FF"} 
+                    <Icon
+                      name="login"
+                      size={24}
+                      color={attendanceType === 'checkIn' ? "#fff" : "#6C63FF"}
                     />
                     <Text style={[
                       styles.typeButtonText,
@@ -279,10 +305,10 @@ const AttendanceScreen = ({ navigation }) => {
                     onPress={() => todayStatus?.checkIn && !todayStatus?.checkOut && setAttendanceType('checkOut')}
                     disabled={!todayStatus?.checkIn || todayStatus?.checkOut}
                   >
-                    <Icon 
-                      name="logout" 
-                      size={24} 
-                      color={attendanceType === 'checkOut' ? "#fff" : "#6C63FF"} 
+                    <Icon
+                      name="logout"
+                      size={24}
+                      color={attendanceType === 'checkOut' ? "#fff" : "#6C63FF"}
                     />
                     <Text style={[
                       styles.typeButtonText,
