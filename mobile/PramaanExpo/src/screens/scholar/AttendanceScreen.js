@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Card, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,6 +17,8 @@ import QRCode from 'react-native-qrcode-svg';
 import { useAuth } from '../../contexts/AuthContext';
 import biometricService from '../../services/biometricService';
 import api from '../../services/api';
+import * as Location from 'expo-location';
+import * as Device from 'expo-device';
 
 const AttendanceScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -27,6 +30,7 @@ const AttendanceScreen = ({ navigation }) => {
   const [error, setError] = useState('');
   const [attendanceType, setAttendanceType] = useState('checkIn');
   const [todayStatus, setTodayStatus] = useState(null);
+  const [checkingStatus, setCheckingStatus] = useState(true);
 
   useEffect(() => {
     checkTodayStatus();
@@ -53,30 +57,34 @@ const AttendanceScreen = ({ navigation }) => {
 
   const checkTodayStatus = async () => {
     try {
+      setCheckingStatus(true);
       const response = await api.get('/attendance/today-status');
       console.log('Today status response:', response.data);
 
-      if (response.data.success) {
-        // The enhanced controller returns the data directly in response.data
-        // with fields like hasCheckedIn, hasCheckedOut, checkInTime, checkOutTime
+      if (response.data && response.data.success) {
+        // Handle the response format from enhanced controller
+        const { attendance, hasCheckedIn, hasCheckedOut } = response.data;
+        
         const statusData = {
-          checkIn: response.data.checkInTime ? {
-            time: response.data.checkInTime,
-            proofId: response.data.checkInProofId
+          checkIn: attendance?.checkIn ? {
+            time: attendance.checkIn,
+            proofId: attendance.checkInProofId
           } : null,
-          checkOut: response.data.checkOutTime ? {
-            time: response.data.checkOutTime,
-            proofId: response.data.checkOutProofId
+          checkOut: attendance?.checkOut ? {
+            time: attendance.checkOut,
+            proofId: attendance.checkOutProofId
           } : null,
-          status: response.data.status || 'absent'
+          status: attendance?.status || 'absent',
+          hasCheckedIn,
+          hasCheckedOut
         };
 
         setTodayStatus(statusData);
 
         // Set attendance type based on today's status
-        if (!statusData.checkIn) {
+        if (!hasCheckedIn) {
           setAttendanceType('checkIn');
-        } else if (statusData.checkIn && !statusData.checkOut) {
+        } else if (hasCheckedIn && !hasCheckedOut) {
           setAttendanceType('checkOut');
         }
       }
@@ -87,10 +95,33 @@ const AttendanceScreen = ({ navigation }) => {
         setTodayStatus({
           checkIn: null,
           checkOut: null,
-          status: 'absent'
+          status: 'absent',
+          hasCheckedIn: false,
+          hasCheckedOut: false
         });
         setAttendanceType('checkIn');
       }
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  const getCurrentLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required for attendance');
+        return null;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      
+      return location;
+    } catch (error) {
+      console.error('Error getting location:', error);
+      return null;
     }
   };
 
@@ -100,86 +131,85 @@ const AttendanceScreen = ({ navigation }) => {
       setError('');
 
       // Check if already marked
-      if (attendanceType === 'checkIn' && todayStatus?.checkIn) {
+      if (attendanceType === 'checkIn' && todayStatus?.hasCheckedIn) {
         Alert.alert('Already Marked', 'Check-in already marked for today');
         return;
       }
-      if (attendanceType === 'checkOut' && todayStatus?.checkOut) {
+      if (attendanceType === 'checkOut' && todayStatus?.hasCheckedOut) {
         Alert.alert('Already Marked', 'Check-out already marked for today');
         return;
       }
 
-      // Authenticate with biometric
+      // Get location first
+      const location = await getCurrentLocation();
+      if (!location) {
+        // Location is optional, so we can continue without it
+        console.log('Proceeding without location data');
+      }
+
+      // Authenticate with biometric (preferably fingerprint)
+      console.log(`Starting biometric authentication for ${user.scholarId}`);
       const authResult = await biometricService.authenticateWithFingerprint();
 
       if (!authResult.success) {
         throw new Error(authResult.error || 'Biometric authentication failed');
       }
 
-      // Get stored biometric data to access nullifier
-      const storedBiometricData = await biometricService.getBiometricData(user.scholarId);
-
-      if (!storedBiometricData || !storedBiometricData.fingerprintCommitment) {
-        throw new Error('No biometric enrollment found. Please enroll first.');
-      }
-
-      // Generate biometric proof with proper data structure
+      // Generate biometric proof
+      console.log(`Generating biometric proof for: ${user.scholarId} ${authResult.authenticationType || 'fingerprint'}`);
       const biometricProof = await biometricService.generateBiometricProof(
         user.scholarId,
-        authResult.authenticationType
+        authResult.authenticationType || 'fingerprint'
       );
 
-      // Get device location (optional)
-      let location = null;
-      try {
-        // You can implement location fetching here if needed
-        location = {
-          coordinates: [0, 0], // Placeholder
-          accuracy: 10
-        };
-      } catch (err) {
-        console.log('Location not available');
+      if (!biometricProof || !biometricProof.proof || !biometricProof.nullifier) {
+        throw new Error('Failed to generate biometric proof. Please ensure you have enrolled your biometrics.');
       }
 
-      // Create biometric data with nullifier for backend
-      const biometricData = {
-        type: authResult.authenticationType,
-        proof: biometricProof.proof,
-        publicInputs: biometricProof.publicInputs,
-        // Include nullifier from stored commitment
-        nullifier: storedBiometricData.fingerprintCommitment.nullifier ||
-          storedBiometricData.faceCommitment?.nullifier ||
-          'temp-nullifier-' + Date.now(), // Fallback
-        timestamp: Date.now()
+      console.log('Biometric proof generated successfully');
+
+      // Prepare the request data - CRITICAL: Use biometricData field name
+      const proofRequestData = {
+        attendanceType,
+        biometricData: {  // CHANGED FROM biometricProof TO biometricData
+          type: authResult.authenticationType || 'fingerprint',
+          proof: biometricProof.proof,
+          nullifier: biometricProof.nullifier,
+          commitment: biometricProof.commitment,
+          timestamp: Date.now()
+        },
+        location: location ? {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          accuracy: location.coords.accuracy
+        } : null,
+        deviceInfo: {
+          deviceId: Device.osInternalBuildId || 'unknown',
+          deviceModel: Device.modelName || 'unknown',
+          osVersion: Device.osVersion || 'unknown',
+          platform: Platform.OS
+        }
       };
 
-      // Call backend to generate attendance proof
       console.log('Sending proof request with biometric data:', {
-        type: biometricData.type,
-        hasNullifier: !!biometricData.nullifier,
-        hasProof: !!biometricData.proof
+        type: proofRequestData.biometricData.type,
+        hasProof: !!proofRequestData.biometricData.proof,
+        hasNullifier: !!proofRequestData.biometricData.nullifier
       });
 
-      const response = await api.post('/attendance/generate-proof', {
-        biometricData,
-        location,
-        attendanceType,
-        deviceInfo: {
-          platform: 'mobile',
-          os: 'android/ios'
-        }
-      });
+      // Call backend to generate attendance proof
+      const response = await api.post('/attendance/generate-proof', proofRequestData);
 
-      if (response.data.success) {
-        const { qrCode, proofId, expiresAt, attendanceId } = response.data.data;
+      if (response.data.success && response.data.qrData) {
+        const { qrData, proofId, expiresAt, pendingAttendanceId } = response.data;
 
         setProofData({
           proofId,
-          attendanceId,
+          attendanceId: pendingAttendanceId,
           type: attendanceType
         });
 
-        setQrValue(qrCode);
+        setQrValue(qrData);
         setProofGenerated(true);
 
         // Calculate countdown from expiry time
@@ -188,16 +218,38 @@ const AttendanceScreen = ({ navigation }) => {
         const diffInSeconds = Math.floor((expiryTime - now) / 1000);
         setCountdown(diffInSeconds > 0 ? diffInSeconds : 300);
 
-        // Refresh today's status
-        await checkTodayStatus();
+        // Don't refresh status immediately - wait for admin verification
+        Alert.alert(
+          'Success', 
+          'QR code generated! Show this to your admin to complete attendance marking.'
+        );
       }
     } catch (error) {
       console.error('Generate proof error:', error);
+      
+      // Handle specific error codes
+      if (error.response?.data?.code === 'BIOMETRIC_NOT_ENROLLED') {
+        Alert.alert(
+          'Biometric Not Enrolled',
+          'Please complete biometric enrollment (both fingerprint and face) before marking attendance.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Enroll Now', onPress: () => navigation.navigate('BiometricEnrollment') }
+          ]
+        );
+      } else if (error.response?.data?.code === 'ALREADY_MARKED') {
+        Alert.alert('Already Marked', error.response.data.error);
+        await checkTodayStatus(); // Refresh status
+      } else if (error.response?.data?.code === 'NO_CHECKIN_FOUND') {
+        Alert.alert('Check-in Required', 'Please check-in first before attempting to check-out');
+      } else {
+        Alert.alert(
+          'Error',
+          error.response?.data?.error || error.message || 'Failed to generate attendance proof'
+        );
+      }
+      
       setError(error.response?.data?.error || error.message || 'Failed to generate proof');
-      Alert.alert(
-        'Error',
-        error.response?.data?.error || error.message || 'Failed to generate attendance proof'
-      );
     } finally {
       setLoading(false);
     }
@@ -210,12 +262,36 @@ const AttendanceScreen = ({ navigation }) => {
   };
 
   const resetQR = () => {
-    setProofGenerated(false);
-    setQrValue('');
-    setProofData(null);
-    setCountdown(300);
-    setError('');
+    Alert.alert(
+      'Generate New QR?',
+      'This will invalidate the current QR code. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Generate New',
+          onPress: () => {
+            setProofGenerated(false);
+            setQrValue('');
+            setProofData(null);
+            setCountdown(300);
+            setError('');
+            checkTodayStatus(); // Refresh status
+          }
+        }
+      ]
+    );
   };
+
+  if (checkingStatus) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6C63FF" />
+          <Text style={styles.loadingText}>Checking attendance status...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -225,7 +301,9 @@ const AttendanceScreen = ({ navigation }) => {
             <Icon name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Mark Attendance</Text>
-          <View style={{ width: 24 }} />
+          <TouchableOpacity onPress={checkTodayStatus}>
+            <Icon name="refresh" size={24} color="#333" />
+          </TouchableOpacity>
         </View>
 
         {/* Today's Status Card */}
@@ -238,7 +316,7 @@ const AttendanceScreen = ({ navigation }) => {
                   <Icon
                     name="login"
                     size={24}
-                    color={todayStatus.checkIn ? "#4CAF50" : "#9E9E9E"}
+                    color={todayStatus.hasCheckedIn ? "#4CAF50" : "#9E9E9E"}
                   />
                   <Text style={styles.statusLabel}>Check-in</Text>
                   <Text style={styles.statusTime}>
@@ -252,7 +330,7 @@ const AttendanceScreen = ({ navigation }) => {
                   <Icon
                     name="logout"
                     size={24}
-                    color={todayStatus.checkOut ? "#4CAF50" : "#9E9E9E"}
+                    color={todayStatus.hasCheckedOut ? "#4CAF50" : "#9E9E9E"}
                   />
                   <Text style={styles.statusLabel}>Check-out</Text>
                   <Text style={styles.statusTime}>
@@ -278,10 +356,10 @@ const AttendanceScreen = ({ navigation }) => {
                     style={[
                       styles.typeButton,
                       attendanceType === 'checkIn' && styles.typeButtonActive,
-                      todayStatus?.checkIn && styles.typeButtonDisabled
+                      todayStatus?.hasCheckedIn && styles.typeButtonDisabled
                     ]}
-                    onPress={() => !todayStatus?.checkIn && setAttendanceType('checkIn')}
-                    disabled={todayStatus?.checkIn}
+                    onPress={() => !todayStatus?.hasCheckedIn && setAttendanceType('checkIn')}
+                    disabled={todayStatus?.hasCheckedIn}
                   >
                     <Icon
                       name="login"
@@ -300,10 +378,10 @@ const AttendanceScreen = ({ navigation }) => {
                     style={[
                       styles.typeButton,
                       attendanceType === 'checkOut' && styles.typeButtonActive,
-                      (!todayStatus?.checkIn || todayStatus?.checkOut) && styles.typeButtonDisabled
+                      (!todayStatus?.hasCheckedIn || todayStatus?.hasCheckedOut) && styles.typeButtonDisabled
                     ]}
-                    onPress={() => todayStatus?.checkIn && !todayStatus?.checkOut && setAttendanceType('checkOut')}
-                    disabled={!todayStatus?.checkIn || todayStatus?.checkOut}
+                    onPress={() => todayStatus?.hasCheckedIn && !todayStatus?.hasCheckedOut && setAttendanceType('checkOut')}
+                    disabled={!todayStatus?.hasCheckedIn || todayStatus?.hasCheckedOut}
                   >
                     <Icon
                       name="logout"
@@ -360,7 +438,7 @@ const AttendanceScreen = ({ navigation }) => {
               mode="contained"
               onPress={generateProof}
               loading={loading}
-              disabled={loading || (attendanceType === 'checkOut' && !todayStatus?.checkIn)}
+              disabled={loading || (attendanceType === 'checkOut' && !todayStatus?.hasCheckedIn)}
               style={styles.generateButton}
               contentStyle={styles.generateButtonContent}
             >
@@ -423,6 +501,16 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
   },
   header: {
     flexDirection: 'row',

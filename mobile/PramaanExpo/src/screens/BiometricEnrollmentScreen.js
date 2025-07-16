@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Alert,
   Image,
+  ScrollView,
 } from 'react-native';
 import {
   Card,
@@ -13,29 +14,43 @@ import {
   RadioButton,
   ActivityIndicator,
   ProgressBar,
+  IconButton,
+  Surface,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
-import { Camera } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as LocalAuthentication from 'expo-local-authentication';
 import biometricService from '../services/biometricService';
 import { scholarService } from '../services/api';
-import zkpService from '../services/zkpService';
 import api from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const BiometricEnrollmentScreen = ({ navigation, route }) => {
-  const { orgData, personalInfo, academicInfo, password } = route.params;
+  // Check if this is for registration or existing scholar
+  const isRegistration = route.params?.isRegistration || false;
+  const { orgData, personalInfo, academicInfo, password } = route.params || {};
+  
+  // For existing scholars
+  const { user } = useAuth();
+  const scholarId = user?.scholarId;
   
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [biometricType, setBiometricType] = useState('face');
+  const [biometricType, setBiometricType] = useState('both');
   const [faceData, setFaceData] = useState(null);
   const [fingerprintData, setFingerprintData] = useState(null);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [enrollmentStatus, setEnrollmentStatus] = useState({
+    hasFingerprint: false,
+    hasFace: false
+  });
 
   useEffect(() => {
     checkBiometricAvailability();
+    if (!isRegistration && scholarId) {
+      checkExistingEnrollment();
+    }
   }, []);
 
   const checkBiometricAvailability = async () => {
@@ -45,9 +60,23 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
     if (!result.available) {
       Alert.alert(
         'Biometric Not Available',
-        result.error || 'Biometric authentication is required for registration',
+        'Biometric authentication is required. Please ensure your device supports fingerprint or face recognition.',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
+    }
+  };
+
+  const checkExistingEnrollment = async () => {
+    try {
+      const response = await api.get('/biometric/status');
+      if (response.data) {
+        setEnrollmentStatus({
+          hasFingerprint: response.data.hasFingerprint || false,
+          hasFace: response.data.hasFace || false
+        });
+      }
+    } catch (error) {
+      console.error('Error checking enrollment status:', error);
     }
   };
 
@@ -55,37 +84,22 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
     try {
       setLoading(true);
       
-      // Request camera permissions
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera permission is required for face capture');
-        return;
-      }
-
-      // Use ImagePicker for face capture (in production, use ML Kit)
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (!result.canceled) {
-        const faceImageData = {
+      const faceImage = await biometricService.captureFace();
+      
+      if (faceImage) {
+        setFaceData({
           type: 'face',
-          uri: result.assets[0].uri,
+          uri: faceImage.uri,
+          base64: faceImage.base64,
           timestamp: Date.now(),
-          // In production, extract face features using ML Kit
-          features: 'mock_face_features_' + Date.now(),
-        };
+        });
         
-        setFaceData(faceImageData);
         Alert.alert('Success', 'Face captured successfully!');
         
         if (biometricType === 'face') {
-          setStep(3); // Skip fingerprint if only face selected
+          setStep(3);
         } else {
-          setStep(2); // Continue to fingerprint
+          setStep(2);
         }
       }
     } catch (error) {
@@ -99,25 +113,19 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
     try {
       setLoading(true);
       
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Place your finger on the sensor to enroll',
-        fallbackLabel: 'Skip Fingerprint',
-        cancelLabel: 'Cancel',
-      });
+      const result = await biometricService.authenticateWithFingerprint();
 
       if (result.success) {
-        const fingerprintData = {
+        setFingerprintData({
           type: 'fingerprint',
+          hash: result.hash,
           timestamp: Date.now(),
-          // In production, capture actual fingerprint template
-          template: 'mock_fingerprint_template_' + Date.now(),
-        };
+        });
         
-        setFingerprintData(fingerprintData);
         Alert.alert('Success', 'Fingerprint captured successfully!');
         setStep(3);
       } else {
-        Alert.alert('Error', 'Fingerprint capture failed');
+        Alert.alert('Error', result.error || 'Fingerprint capture failed');
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to capture fingerprint');
@@ -126,35 +134,135 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
     }
   };
 
-  const generateBiometricCommitments = async () => {
+  const enrollBiometricToBackend = async (type, data) => {
     try {
-      const commitments = {};
+      // Generate commitment
+      const commitment = await biometricService.generateBiometricCommitment(data);
       
-      if (faceData) {
-        // Generate ZKP commitment for face data
-        const faceCommitment = await biometricService.generateBiometricCommitment(faceData);
-        commitments.faceCommitment = faceCommitment;
+      // Prepare enrollment data
+      const enrollmentData = {
+        scholarId: scholarId || personalInfo?.email, // Use scholarId for existing, email for new
+        type: type,
+        biometricData: {}
+      };
+
+      if (type === 'fingerprint') {
+        enrollmentData.biometricData.fingerprintTemplate = data.hash || commitment.hash;
+        enrollmentData.biometricData.fingerprintCommitment = commitment.commitment;
+      } else if (type === 'face') {
+        // For face, send as form data if image is involved
+        if (data.uri) {
+          const formData = new FormData();
+          formData.append('scholarId', enrollmentData.scholarId);
+          formData.append('type', 'face');
+          formData.append('faceImage', {
+            uri: data.uri,
+            type: 'image/jpeg',
+            name: 'face.jpg'
+          });
+          
+          return await api.post('/biometric/enroll', formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            }
+          });
+        } else {
+          enrollmentData.biometricData.faceCommitment = commitment.commitment;
+        }
+      }
+
+      // Send enrollment request
+      const response = await api.post('/biometric/enroll', enrollmentData);
+      
+      if (response.data.success) {
+        // Save commitment locally
+        const existingData = await biometricService.getBiometricData(scholarId) || {};
+        const updatedData = {
+          ...existingData,
+          [`${type}Commitment`]: commitment,
+          enrolledAt: existingData.enrolledAt || new Date().toISOString()
+        };
+        
+        await biometricService.storeBiometricData(scholarId, updatedData);
+        
+        return { success: true };
       }
       
-      if (fingerprintData) {
-        // Generate ZKP commitment for fingerprint data
-        const fingerprintCommitment = await biometricService.generateBiometricCommitment(fingerprintData);
-        commitments.fingerprintCommitment = fingerprintCommitment;
-      }
-      
-      return commitments;
+      throw new Error(response.data.error || 'Enrollment failed');
     } catch (error) {
-      console.error('Error generating commitments:', error);
+      console.error(`${type} enrollment error:`, error);
       throw error;
+    }
+  };
+
+  const completeEnrollment = async () => {
+    try {
+      setLoading(true);
+      const errors = [];
+
+      // Enroll fingerprint if captured
+      if (fingerprintData && !enrollmentStatus.hasFingerprint) {
+        try {
+          await enrollBiometricToBackend('fingerprint', fingerprintData);
+          console.log('Fingerprint enrolled successfully');
+        } catch (error) {
+          errors.push(`Fingerprint: ${error.message}`);
+        }
+      }
+
+      // Enroll face if captured
+      if (faceData && !enrollmentStatus.hasFace) {
+        try {
+          await enrollBiometricToBackend('face', faceData);
+          console.log('Face enrolled successfully');
+        } catch (error) {
+          errors.push(`Face: ${error.message}`);
+        }
+      }
+
+      if (errors.length > 0) {
+        Alert.alert('Enrollment Errors', errors.join('\n'));
+        return;
+      }
+
+      // If this is part of registration, complete the registration
+      if (isRegistration) {
+        await completeRegistration();
+      } else {
+        // For existing scholars, just show success
+        Alert.alert(
+          'Success!',
+          'Biometric enrollment completed successfully. You can now mark attendance.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.navigate('ScholarDashboard')
+            }
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Enrollment error:', error);
+      Alert.alert('Error', 'Failed to complete enrollment. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const completeRegistration = async () => {
     try {
-      setLoading(true);
-      
       // Generate biometric commitments
-      const biometricCommitments = await generateBiometricCommitments();
+      const biometricCommitments = {};
+      
+      if (faceData) {
+        const faceCommitment = await biometricService.generateBiometricCommitment(faceData);
+        biometricCommitments.faceCommitment = faceCommitment;
+      }
+      
+      if (fingerprintData) {
+        const fingerprintCommitment = await biometricService.generateBiometricCommitment(fingerprintData);
+        biometricCommitments.fingerprintCommitment = fingerprintCommitment;
+      }
       
       // Prepare registration data
       const registrationData = {
@@ -195,8 +303,6 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
     } catch (error) {
       console.error('Registration error:', error);
       Alert.alert('Registration Failed', 'Please check your connection and try again');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -205,8 +311,36 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
       <Card.Content>
         <Text style={styles.title}>Biometric Enrollment</Text>
         <Text style={styles.description}>
-          Select the biometric authentication method you want to use for attendance marking.
+          {isRegistration 
+            ? 'Select the biometric authentication method for secure attendance marking.'
+            : 'Complete your biometric enrollment to enable attendance marking.'}
         </Text>
+
+        {!isRegistration && (enrollmentStatus.hasFingerprint || enrollmentStatus.hasFace) && (
+          <Surface style={styles.statusSurface}>
+            <Text style={styles.statusTitle}>Current Enrollment Status:</Text>
+            <View style={styles.statusRow}>
+              <Icon 
+                name="fingerprint" 
+                size={20} 
+                color={enrollmentStatus.hasFingerprint ? '#4CAF50' : '#999'} 
+              />
+              <Text style={[styles.statusText, enrollmentStatus.hasFingerprint && styles.statusTextActive]}>
+                Fingerprint: {enrollmentStatus.hasFingerprint ? 'Enrolled' : 'Not Enrolled'}
+              </Text>
+            </View>
+            <View style={styles.statusRow}>
+              <Icon 
+                name="face" 
+                size={20} 
+                color={enrollmentStatus.hasFace ? '#4CAF50' : '#999'} 
+              />
+              <Text style={[styles.statusText, enrollmentStatus.hasFace && styles.statusTextActive]}>
+                Face: {enrollmentStatus.hasFace ? 'Enrolled' : 'Not Enrolled'}
+              </Text>
+            </View>
+          </Surface>
+        )}
         
         <RadioButton.Group
           onValueChange={setBiometricType}
@@ -216,23 +350,33 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
             label="Face Recognition" 
             value="face"
             left={() => <Icon name="face" size={24} />}
+            disabled={!isRegistration && enrollmentStatus.hasFace}
           />
           <RadioButton.Item 
             label="Fingerprint" 
             value="fingerprint"
             left={() => <Icon name="fingerprint" size={24} />}
+            disabled={!isRegistration && enrollmentStatus.hasFingerprint}
           />
           <RadioButton.Item 
             label="Both (Recommended)" 
             value="both"
             left={() => <Icon name="security" size={24} />}
+            disabled={!isRegistration && enrollmentStatus.hasFingerprint && enrollmentStatus.hasFace}
           />
         </RadioButton.Group>
         
         <Button
           mode="contained"
-          onPress={() => setStep(biometricType === 'fingerprint' ? 2 : 1.5)}
+          onPress={() => {
+            if (biometricType === 'fingerprint') {
+              setStep(2);
+            } else {
+              setStep(1.5);
+            }
+          }}
           style={styles.button}
+          disabled={!isRegistration && enrollmentStatus.hasFingerprint && enrollmentStatus.hasFace}
         >
           Continue
         </Button>
@@ -294,7 +438,7 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
             color={fingerprintData ? '#4CAF50' : '#6C63FF'} 
           />
           {fingerprintData && (
-            <Text style={styles.successText}>✓ Fingerprint enrolled successfully</Text>
+            <Text style={styles.successText}>✓ Fingerprint captured successfully</Text>
           )}
         </View>
         
@@ -325,7 +469,9 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
   const renderCompletion = () => (
     <Card style={styles.card}>
       <Card.Content>
-        <Text style={styles.title}>Complete Registration</Text>
+        <Text style={styles.title}>
+          {isRegistration ? 'Complete Registration' : 'Complete Enrollment'}
+        </Text>
         <Text style={styles.description}>
           Your biometric data has been captured and will be processed using Zero-Knowledge Proof cryptography to ensure complete privacy.
         </Text>
@@ -334,30 +480,33 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
           {faceData && (
             <View style={styles.summaryItem}>
               <Icon name="face" size={24} color="#4CAF50" />
-              <Text style={styles.summaryText}>Face Recognition Enrolled</Text>
+              <Text style={styles.summaryText}>Face Recognition Ready</Text>
             </View>
           )}
           {fingerprintData && (
             <View style={styles.summaryItem}>
               <Icon name="fingerprint" size={24} color="#4CAF50" />
-              <Text style={styles.summaryText}>Fingerprint Enrolled</Text>
+              <Text style={styles.summaryText}>Fingerprint Ready</Text>
             </View>
           )}
         </View>
         
-        <Text style={styles.privacyNote}>
-          🔒 Your biometric data never leaves your device. Only cryptographic proofs are stored.
-        </Text>
+        <Surface style={styles.privacyNote}>
+          <Icon name="lock" size={16} color="#666" />
+          <Text style={styles.privacyText}>
+            Your biometric data never leaves your device. Only cryptographic proofs are stored.
+          </Text>
+        </Surface>
         
         <Button
           mode="contained"
-          onPress={completeRegistration}
+          onPress={completeEnrollment}
           loading={loading}
-          disabled={loading}
+          disabled={loading || (!faceData && !fingerprintData)}
           style={styles.button}
           icon="check"
         >
-          Complete Registration
+          {isRegistration ? 'Complete Registration' : 'Complete Enrollment'}
         </Button>
       </Card.Content>
     </Card>
@@ -366,24 +515,23 @@ const BiometricEnrollmentScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Icon 
-          name="arrow-back" 
+        <IconButton 
+          icon="arrow-left" 
           size={24} 
-          color="#333" 
           onPress={() => navigation.goBack()} 
         />
         <Text style={styles.headerTitle}>Biometric Enrollment</Text>
-        <View style={{ width: 24 }} />
+        <View style={{ width: 48 }} />
       </View>
       
       <ProgressBar progress={step / 3} color="#6C63FF" style={styles.progress} />
       
-      <View style={styles.content}>
+      <ScrollView style={styles.content}>
         {step === 1 && renderBiometricSelection()}
         {step === 1.5 && renderFaceCapture()}
         {step === 2 && renderFingerprintCapture()}
         {step === 3 && renderCompletion()}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -397,8 +545,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
     backgroundColor: '#fff',
     elevation: 2,
   },
@@ -412,10 +560,11 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 20,
+    padding: 16,
   },
   card: {
     elevation: 4,
+    marginBottom: 16,
   },
   title: {
     fontSize: 20,
@@ -431,9 +580,35 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  statusSurface: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    marginBottom: 16,
+  },
+  statusTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  statusText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#999',
+  },
+  statusTextActive: {
+    color: '#4CAF50',
+    fontWeight: '500',
+  },
   button: {
     marginTop: 15,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   imageContainer: {
     alignItems: 'center',
@@ -468,11 +643,18 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   privacyNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    marginVertical: 15,
+    borderRadius: 8,
+    elevation: 1,
+  },
+  privacyText: {
     fontSize: 12,
     color: '#666',
-    textAlign: 'center',
-    marginVertical: 15,
-    fontStyle: 'italic',
+    marginLeft: 8,
+    flex: 1,
   },
 });
 

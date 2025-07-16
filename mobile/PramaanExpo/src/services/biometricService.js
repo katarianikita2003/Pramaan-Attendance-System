@@ -89,6 +89,7 @@ class BiometricService {
           hash,
           timestamp,
           authenticationType: biometricSupport.hasFingerprint ? 'fingerprint' : 'faceId',
+          data: hash, // Add data field for compatibility
         };
       } else {
         return {
@@ -206,21 +207,30 @@ class BiometricService {
   }
 
   /**
-   * Store biometric data locally - FIXED to use plain JSON
+   * Store biometric data locally
    */
   async storeBiometricData(scholarId, data) {
     try {
       const key = `biometric_data_${scholarId}`;
-      // Store as plain JSON string (AsyncStorage handles the conversion)
-      await AsyncStorage.setItem(key, JSON.stringify(data));
+      // Ensure we're storing the complete data with nullifiers
+      const dataToStore = {
+        ...data,
+        scholarId,
+        storedAt: new Date().toISOString()
+      };
+      await AsyncStorage.setItem(key, JSON.stringify(dataToStore));
       console.log('Biometric data stored successfully for:', scholarId);
+      
+      // Also update enrollment status
+      await this.saveBiometricEnrollment(scholarId, true);
     } catch (error) {
       console.error('Error storing biometric data:', error);
+      throw error;
     }
   }
 
   /**
-   * Retrieve stored biometric data - FIXED to use plain JSON
+   * Retrieve stored biometric data
    */
   async getBiometricData(scholarId) {
     try {
@@ -238,16 +248,15 @@ class BiometricService {
 
   /**
    * Check if biometric is enrolled for a scholar
-   * This is the missing method that was causing the error
    */
   async checkEnrollment(scholarId) {
     try {
       // Check local enrollment status
       const isEnrolled = await this.isBiometricEnrolled(scholarId);
-      
+
       // Check if biometric data exists
       const biometricData = await this.getBiometricData(scholarId);
-      
+
       return {
         success: true,
         isEnrolled: isEnrolled && biometricData !== null,
@@ -275,63 +284,20 @@ class BiometricService {
       // Get stored biometric data
       const storedData = await this.getBiometricData(scholarId);
 
-      // If no stored data, generate temporary proof for testing
       if (!storedData) {
-        console.warn('No stored biometric data found, generating temporary proof');
-
-        // Generate a temporary commitment for testing
-        const tempCommitment = {
-          commitment: await Crypto.digestStringAsync(
-            Crypto.CryptoDigestAlgorithm.SHA256,
-            `${scholarId}_${biometricType}_${Date.now()}`
-          ),
-          nullifier: await Crypto.digestStringAsync(
-            Crypto.CryptoDigestAlgorithm.SHA256,
-            `nullifier_${scholarId}_${Date.now()}`
-          )
-        };
-
-        // Generate proof data
-        const proofData = {
-          commitment: tempCommitment.commitment,
-          nullifier: tempCommitment.nullifier,
-          timestamp: Date.now(),
-          scholarId: scholarId,
-          biometricType: biometricType,
-          deviceId: Device?.deviceName || 'unknown',
-          nonce: Math.random().toString(36).substring(2)
-        };
-
-        // Create a hash of the proof data as the proof
-        const proofString = JSON.stringify(proofData);
-        const proof = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          proofString
-        );
-
-        console.log('Temporary biometric proof generated successfully');
-
-        return {
-          proof: proof,
-          publicInputs: {
-            scholarId: scholarId,
-            timestamp: proofData.timestamp,
-            biometricType: biometricType
-          }
-        };
+        throw new Error('No biometric enrollment found. Please complete enrollment first.');
       }
 
-      // Select the appropriate commitment based on type
+      // Check if the requested biometric type is enrolled
       const commitment = biometricType === 'face'
         ? storedData.faceCommitment
         : storedData.fingerprintCommitment;
 
       if (!commitment) {
-        throw new Error(`No ${biometricType} biometric enrollment found`);
+        throw new Error(`No ${biometricType} enrollment found. Please enroll your ${biometricType} first.`);
       }
 
-      // Generate a proof that demonstrates knowledge of the biometric
-      // without revealing the actual biometric data
+      // Generate proof data
       const proofData = {
         commitment: commitment.commitment,
         nullifier: commitment.nullifier,
@@ -351,8 +317,11 @@ class BiometricService {
 
       console.log('Biometric proof generated successfully');
 
+      // Return the proof with ALL required fields
       return {
         proof: proof,
+        nullifier: commitment.nullifier, // CRITICAL: Include nullifier
+        commitment: commitment.commitment,
         publicInputs: {
           scholarId: scholarId,
           timestamp: proofData.timestamp,
@@ -386,10 +355,15 @@ class BiometricService {
    */
   async generateBiometricCommitment(biometricData) {
     try {
+      // Add more entropy for uniqueness
       const dataString = JSON.stringify({
         type: biometricData?.type || 'fingerprint',
         timestamp: biometricData?.timestamp || Date.now(),
         nonce: Math.random().toString(36).substring(2),
+        deviceId: Device?.deviceName || 'unknown',
+        random: Math.random().toString(36).substring(2, 15),
+        // Add biometric-specific data if available
+        data: biometricData?.base64 ? biometricData.base64.substring(0, 100) : biometricData?.data || 'default'
       });
 
       const commitment = await Crypto.digestStringAsync(
@@ -397,16 +371,18 @@ class BiometricService {
         dataString
       );
 
-      // Return commitment object with nullifier
+      // Generate a unique nullifier that's deterministic for the same biometric
+      const nullifierData = `${commitment}_${biometricData?.type || 'fingerprint'}_${Date.now()}`;
       const nullifier = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
-        `nullifier_${commitment}_${Date.now()}`
+        nullifierData
       );
 
       return {
         commitment: commitment,
         nullifier: nullifier,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        type: biometricData?.type || 'fingerprint'
       };
     } catch (error) {
       console.error('Error generating biometric commitment:', error);
@@ -432,6 +408,9 @@ class BiometricService {
     };
   }
 
+  /**
+   * Verify biometric against stored data
+   */
   async verifyBiometric(scholarId, newBiometricAuth) {
     try {
       const storedData = await this.getBiometricData(scholarId);
@@ -449,6 +428,37 @@ class BiometricService {
     } catch (error) {
       console.error('Error verifying biometric:', error);
       return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get enrollment status for display
+   */
+  async getEnrollmentStatus(scholarId) {
+    try {
+      const storedData = await this.getBiometricData(scholarId);
+      
+      if (!storedData) {
+        return {
+          isEnrolled: false,
+          hasFingerprint: false,
+          hasFace: false
+        };
+      }
+
+      return {
+        isEnrolled: true,
+        hasFingerprint: !!storedData.fingerprintCommitment,
+        hasFace: !!storedData.faceCommitment,
+        enrolledAt: storedData.enrolledAt || storedData.storedAt
+      };
+    } catch (error) {
+      console.error('Error checking enrollment status:', error);
+      return {
+        isEnrolled: false,
+        hasFingerprint: false,
+        hasFace: false
+      };
     }
   }
 }

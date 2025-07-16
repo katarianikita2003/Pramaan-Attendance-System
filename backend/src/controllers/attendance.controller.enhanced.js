@@ -47,17 +47,50 @@ export const generateAttendanceProof = async (req, res) => {
     // Check if biometric is enrolled - look for biometric commitment
     const biometricRecord = await BiometricCommitment.findOne({ 
       userId: scholar._id,
-      status: 'active'
+      isActive: true  // FIXED: Use isActive instead of status
     });
 
-    if (!biometricRecord || !biometricRecord.commitments?.fingerprint) {
-      logger.warn(`Scholar ${scholarId} attempted attendance without complete biometric enrollment`);
+    if (!biometricRecord) {
+      logger.warn(`Scholar ${scholarId} attempted attendance without biometric enrollment`);
       return res.status(400).json({
         success: false,
         error: 'Biometric not enrolled. Please complete biometric enrollment first.',
         code: 'BIOMETRIC_NOT_ENROLLED'
       });
     }
+
+    // Check if at least ONE biometric is enrolled (fingerprint OR face)
+    const hasFingerprint = biometricRecord.commitments?.fingerprint?.hash ? true : false;
+    const hasFace = biometricRecord.commitments?.face?.hash ? true : false;
+
+    if (!hasFingerprint && !hasFace) {
+      logger.warn(`Scholar ${scholarId} has no valid biometric enrollment`);
+      return res.status(400).json({
+        success: false,
+        error: 'No valid biometric enrollment found. Please enroll at least one biometric method.',
+        code: 'NO_BIOMETRIC_ENROLLED'
+      });
+    }
+
+    // Validate that the biometric type being used is enrolled
+    const requestedBiometricType = biometricData.type || 'fingerprint';
+    if (requestedBiometricType === 'fingerprint' && !hasFingerprint) {
+      return res.status(400).json({
+        success: false,
+        error: 'Fingerprint not enrolled. Please enroll your fingerprint or use face recognition.',
+        code: 'FINGERPRINT_NOT_ENROLLED'
+      });
+    }
+
+    if (requestedBiometricType === 'face' && !hasFace) {
+      return res.status(400).json({
+        success: false,
+        error: 'Face not enrolled. Please enroll your face or use fingerprint.',
+        code: 'FACE_NOT_ENROLLED'
+      });
+    }
+
+    logger.info(`Scholar ${scholarId} has enrolled biometrics - Fingerprint: ${hasFingerprint}, Face: ${hasFace}`);
 
     // Check today's attendance
     const today = new Date();
@@ -116,7 +149,7 @@ export const generateAttendanceProof = async (req, res) => {
     let locationValid = true;
     let locationProof = null;
     
-    if (organization?.settings?.locationTracking?.enabled && organization.location) {
+    if (organization?.settings?.requireLocation && organization.location?.coordinates) {
       locationProof = await enhancedZKPService.generateLocationProof(
         location,
         organization.location
@@ -144,7 +177,7 @@ export const generateAttendanceProof = async (req, res) => {
       }
     });
 
-    // Create attendance record
+    // Create attendance record with pending status
     const attendance = new Attendance({
       scholarId: scholar._id,
       organizationId,
@@ -168,7 +201,8 @@ export const generateAttendanceProof = async (req, res) => {
         isLate: false,
         biometricVerified: true,
         locationValid,
-        qrGenerated: true
+        qrGenerated: true,
+        biometricType: requestedBiometricType
       }
     });
 
@@ -176,17 +210,17 @@ export const generateAttendanceProof = async (req, res) => {
 
     logger.info(`Attendance proof generated successfully for scholar ${scholarId}`);
 
+    // Return QR data directly (not nested in data object)
     res.json({
       success: true,
       message: 'Attendance proof generated successfully',
-      data: {
-        qrCode: qrCodeImage,
-        proofId: attendanceProof.proofId,
-        expiresAt: qrData.expiresAt,
-        attendanceId: attendance._id,
-        type: attendanceType,
-        locationValid
-      }
+      qrData: qrData.qrData,
+      qrCode: qrCodeImage,
+      proofId: attendanceProof.proofId,
+      expiresAt: qrData.expiresAt,
+      pendingAttendanceId: attendance._id,
+      attendanceType,
+      locationValid
     });
 
   } catch (error) {
