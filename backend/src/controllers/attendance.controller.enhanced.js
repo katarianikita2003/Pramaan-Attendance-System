@@ -11,12 +11,12 @@ import logger from '../utils/logger.js';
 // Generate attendance proof for QR code
 export const generateAttendanceProof = async (req, res) => {
   try {
-    const { 
+    const {
       attendanceType = 'checkIn',
       location,
-      biometricData 
+      biometricData
     } = req.body;
-    
+
     const userId = req.user.id;
     const scholarId = req.user.scholarId;
     const organizationId = req.user.organizationId;
@@ -45,9 +45,9 @@ export const generateAttendanceProof = async (req, res) => {
     }
 
     // Check if biometric is enrolled - look for biometric commitment
-    const biometricRecord = await BiometricCommitment.findOne({ 
+    const biometricRecord = await BiometricCommitment.findOne({
       userId: scholar._id,
-      isActive: true  // FIXED: Use isActive instead of status
+      isActive: true
     });
 
     if (!biometricRecord) {
@@ -95,7 +95,7 @@ export const generateAttendanceProof = async (req, res) => {
     // Check today's attendance
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const existingAttendance = await Attendance.findOne({
       scholarId: scholar._id,
       date: { $gte: today },
@@ -134,21 +134,21 @@ export const generateAttendanceProof = async (req, res) => {
     // Generate ZKP proof
     const zkpKeys = enhancedZKPService.getKeys();
     const timestamp = Date.now();
-    
+
     // Generate attendance proof using biometric data
     const attendanceProof = await enhancedZKPService.generateAttendanceProof(
       scholar._id.toString(),
-      biometricData.proof || biometricData.nullifier, // Use nullifier as proof
+      biometricData.proof || biometricData.nullifier,
       timestamp
     );
 
     // Get organization for location verification
     const organization = await Organization.findById(organizationId);
-    
+
     // Verify location if organization has location settings
     let locationValid = true;
     let locationProof = null;
-    
+
     if (organization?.settings?.requireLocation && organization.location?.coordinates) {
       locationProof = await enhancedZKPService.generateLocationProof(
         location,
@@ -177,13 +177,13 @@ export const generateAttendanceProof = async (req, res) => {
       }
     });
 
-    // Create attendance record with pending status
+    // Create attendance record with correct status
     const attendance = new Attendance({
       scholarId: scholar._id,
       organizationId,
       date: new Date(),
       attendanceType,
-      status: 'pending', // Will be marked as 'present' after QR scan
+      status: 'present', // FIXED: Changed from 'pending' to 'present'
       proofData: {
         zkProof: attendanceProof,
         location: location ? {
@@ -192,35 +192,44 @@ export const generateAttendanceProof = async (req, res) => {
           accuracy: location.accuracy,
           timestamp: new Date()
         } : null,
-        verificationMethod: 'biometric_zkp',
-        qrData: qrData.qrData
+        verificationMethod: 'biometric_zkp'
       },
+      deviceInfo: biometricData.deviceInfo || {},
       metadata: {
         checkInTime: attendanceType === 'checkIn' ? new Date() : undefined,
         checkOutTime: attendanceType === 'checkOut' ? new Date() : undefined,
         isLate: false,
         biometricVerified: true,
-        locationValid,
-        qrGenerated: true,
-        biometricType: requestedBiometricType
+        locationVerified: locationValid
       }
     });
 
     await attendance.save();
 
+    // Update scholar stats
+    if (attendanceType === 'checkIn') {
+      await scholar.updateAttendanceStats();
+    }
+
     logger.info(`Attendance proof generated successfully for scholar ${scholarId}`);
 
-    // Return QR data directly (not nested in data object)
     res.json({
       success: true,
       message: 'Attendance proof generated successfully',
-      qrData: qrData.qrData,
-      qrCode: qrCodeImage,
-      proofId: attendanceProof.proofId,
-      expiresAt: qrData.expiresAt,
-      pendingAttendanceId: attendance._id,
-      attendanceType,
-      locationValid
+      data: {
+        proofId: attendanceProof.proofId,
+        qrCode: qrCodeImage,
+        expiresAt: qrData.expiresAt,
+        attendance: {
+          id: attendance._id,
+          type: attendanceType,
+          markedAt: attendance.date,
+          status: attendance.status,
+          locationValid,
+          biometricVerified: true
+        },
+        verificationUrl: `/api/attendance/verify/${attendanceProof.proofId}`
+      }
     });
 
   } catch (error) {
@@ -450,6 +459,5 @@ export const getAttendanceHistory = async (req, res) => {
 export default {
   generateAttendanceProof,
   verifyQRAttendance,
-  getTodayStatus,
-  getAttendanceHistory
+  getTodayStatus
 };

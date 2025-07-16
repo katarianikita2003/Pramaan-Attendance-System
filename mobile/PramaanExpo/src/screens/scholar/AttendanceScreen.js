@@ -385,15 +385,17 @@ const AttendanceScreen = ({ navigation }) => {
       // Call backend to generate attendance proof
       const response = await api.post('/attendance/generate-proof', proofRequestData);
 
+      // CRITICAL FIX: Handle the response format correctly
       if (response.data.success && response.data.qrData) {
-        const { qrData, proofId, expiresAt, pendingAttendanceId } = response.data;
+        const { qrData, proofId, expiresAt, pendingAttendanceId, attendanceType: returnedType } = response.data;
 
         setProofData({
           proofId,
           attendanceId: pendingAttendanceId,
-          type: attendanceType
+          type: returnedType || attendanceType
         });
 
+        // CRITICAL: Set the base64 QR data directly
         setQrValue(qrData);
         setProofGenerated(true);
 
@@ -422,9 +424,24 @@ const AttendanceScreen = ({ navigation }) => {
             { text: 'Enroll Now', onPress: () => setShowEnrollModal(true) }
           ]
         );
-      } else if (error.response?.data?.code === 'ALREADY_MARKED') {
-        Alert.alert('Already Marked', error.response.data.error);
-        await checkTodayStatus(); // Refresh status
+      } else if (error.response?.data?.code === 'ATTENDANCE_ALREADY_MARKED') {
+        // Handle attendance already marked
+        Alert.alert(
+          'Attendance Already Marked',
+          error.response.data.error || `${attendanceType === 'checkIn' ? 'Check-in' : 'Check-out'} already marked for today`,
+          [
+            {
+              text: 'OK',
+              onPress: async () => {
+                // Refresh the status to show the already marked attendance
+                await checkTodayStatus();
+                setProofGenerated(false);
+                setQrValue('');
+                setProofData(null);
+              }
+            }
+          ]
+        );
       } else if (error.response?.data?.code === 'NO_CHECKIN_FOUND') {
         Alert.alert('Check-in Required', 'Please check-in first before attempting to check-out');
       } else {
@@ -465,6 +482,59 @@ const AttendanceScreen = ({ navigation }) => {
         }
       ]
     );
+  };
+
+  // Render attendance status
+  const renderAttendanceStatus = () => {
+    if (checkingStatus) {
+      return (
+        <Card style={styles.statusCard}>
+          <Card.Content>
+            <ActivityIndicator size="small" color="#6200EE" />
+            <Text style={styles.statusText}>Checking attendance status...</Text>
+          </Card.Content>
+        </Card>
+      );
+    }
+
+    if (todayStatus?.hasCheckedIn || todayStatus?.hasCheckedOut) {
+      return (
+        <Card style={[styles.statusCard, styles.successCard]}>
+          <Card.Content>
+            <View style={styles.statusHeader}>
+              <Icon name="check-circle" size={24} color="#4CAF50" />
+              <Title style={styles.statusTitleText}>Today's Attendance</Title>
+            </View>
+            
+            {todayStatus.checkIn && (
+              <View style={styles.statusRowDetail}>
+                <Text style={styles.statusLabelText}>Check-in:</Text>
+                <Text style={styles.statusValueText}>
+                  {new Date(todayStatus.checkIn.time).toLocaleTimeString()}
+                </Text>
+              </View>
+            )}
+            
+            {todayStatus.checkOut && (
+              <View style={styles.statusRowDetail}>
+                <Text style={styles.statusLabelText}>Check-out:</Text>
+                <Text style={styles.statusValueText}>
+                  {new Date(todayStatus.checkOut.time).toLocaleTimeString()}
+                </Text>
+              </View>
+            )}
+            
+            {!todayStatus.hasCheckedOut && todayStatus.hasCheckedIn && (
+              <Text style={styles.pendingText}>
+                You can check out after completing your work day
+              </Text>
+            )}
+          </Card.Content>
+        </Card>
+      );
+    }
+
+    return null;
   };
 
   // Biometric Enrollment Modal
@@ -578,6 +648,9 @@ const AttendanceScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
+        {/* Add the attendance status display here */}
+        {renderAttendanceStatus()}
+
         {/* Biometric Enrollment Status */}
         {!biometricEnrolled && (
           <Card style={[styles.statusCard, styles.warningCard]}>
@@ -603,8 +676,8 @@ const AttendanceScreen = ({ navigation }) => {
           </Card>
         )}
 
-        {/* Today's Status Card */}
-        {todayStatus && (
+        {/* Today's Status Card - Show only if not already rendered above */}
+        {todayStatus && !todayStatus.hasCheckedIn && !todayStatus.hasCheckedOut && (
           <Card style={styles.statusCard}>
             <Card.Content>
               <Text style={styles.statusTitle}>Today's Attendance</Text>
@@ -751,22 +824,63 @@ const AttendanceScreen = ({ navigation }) => {
                   {attendanceType === 'checkIn' ? 'Check-In' : 'Check-Out'} QR Code
                 </Text>
                 <View style={styles.qrWrapper}>
-                  <QRCode
-                    value={qrValue}
-                    size={250}
-                    color="#000"
-                    backgroundColor="#fff"
-                  />
+                  {qrValue && qrValue.length < 200 ? ( // Check QR data size
+                    <QRCode
+                      value={qrValue}
+                      size={250}
+                      backgroundColor="white"
+                      color="black"
+                      logoSize={50}
+                      logoBackgroundColor="white"
+                      logoBorderRadius={10}
+                      quietZone={10}
+                      ecl="M" // Medium error correction level
+                    />
+                  ) : (
+                    <View style={styles.qrErrorContainer}>
+                      <Icon name="error" size={50} color="#FF6B6B" />
+                      <Text style={styles.qrErrorText}>
+                        QR data too large. Please try again.
+                      </Text>
+                      <Button
+                        mode="outlined"
+                        onPress={() => {
+                          setProofGenerated(false);
+                          setQrValue('');
+                          generateProof();
+                        }}
+                        style={styles.retryButton}
+                      >
+                        Retry
+                      </Button>
+                    </View>
+                  )}
                 </View>
+                
+                {/* Countdown Timer */}
                 <View style={styles.timerContainer}>
-                  <Icon name="timer" size={20} color="#FF5252" />
-                  <Text style={styles.timerText}>
+                  <Icon 
+                    name="timer" 
+                    size={24} 
+                    color={countdown < 60 ? "#FF6B6B" : "#6C63FF"} 
+                  />
+                  <Text style={[
+                    styles.timerText,
+                    countdown < 60 && styles.timerTextWarning
+                  ]}>
                     Expires in: {formatTime(countdown)}
                   </Text>
                 </View>
-                <Text style={styles.proofId}>
-                  Proof ID: {proofData?.proofId?.slice(-8) || 'N/A'}
-                </Text>
+                
+                {/* Proof Details */}
+                <View style={styles.proofDetails}>
+                  <Text style={styles.proofDetailText}>
+                    Proof ID: {proofData?.proofId?.substring(0, 8)}...
+                  </Text>
+                  <Text style={styles.proofDetailText}>
+                    Type: {attendanceType === 'checkIn' ? 'Check-In' : 'Check-Out'}
+                  </Text>
+                </View>
               </Card.Content>
             </Card>
 
@@ -777,13 +891,39 @@ const AttendanceScreen = ({ navigation }) => {
               </Text>
             </View>
 
-            <Button
-              mode="outlined"
-              onPress={resetQR}
-              style={styles.resetButton}
-            >
-              Generate New QR
-            </Button>
+            {/* Action Buttons */}
+            <View style={styles.qrActionButtons}>
+              <Button
+                mode="outlined"
+                onPress={resetQR}
+                style={[styles.actionButton, styles.resetButton]}
+              >
+                Generate New
+              </Button>
+              <Button
+                mode="contained"
+                onPress={() => {
+                  Alert.alert(
+                    'Attendance Marked?',
+                    'Has the admin scanned your QR code?',
+                    [
+                      { text: 'No', style: 'cancel' },
+                      {
+                        text: 'Yes',
+                        onPress: () => {
+                          setProofGenerated(false);
+                          checkTodayStatus();
+                          navigation.goBack();
+                        }
+                      }
+                    ]
+                  );
+                }}
+                style={[styles.actionButton, styles.doneButton]}
+              >
+                Done
+              </Button>
+            </View>
           </>
         )}
       </ScrollView>
@@ -829,6 +969,45 @@ const styles = StyleSheet.create({
   statusCard: {
     margin: 15,
     elevation: 2,
+  },
+  successCard: {
+    borderColor: '#4CAF50',
+    borderWidth: 1,
+  },
+  statusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statusTitleText: {
+    marginLeft: 8,
+    fontSize: 18,
+    color: '#4CAF50',
+  },
+  statusRowDetail: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 4,
+  },
+  statusLabelText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  statusValueText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  pendingText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  statusText: {
+    marginTop: 10,
+    textAlign: 'center',
+    color: '#666',
   },
   warningCard: {
     borderColor: '#FF9800',
@@ -973,10 +1152,28 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   qrWrapper: {
-    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 20,
+    minHeight: 270,
+    padding: 10,
     backgroundColor: '#fff',
     borderRadius: 10,
-    elevation: 2,
+  },
+  qrErrorContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  qrErrorText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  retryButton: {
+    marginTop: 10,
   },
   timerContainer: {
     flexDirection: 'row',
@@ -985,9 +1182,25 @@ const styles = StyleSheet.create({
   },
   timerText: {
     fontSize: 16,
-    color: '#FF5252',
-    marginLeft: 5,
+    color: '#6C63FF',
+    marginLeft: 8,
     fontWeight: 'bold',
+  },
+  timerTextWarning: {
+    color: '#FF6B6B',
+  },
+  proofDetails: {
+    backgroundColor: '#F5F5F5',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 10,
+    width: '100%',
+  },
+  proofDetailText: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginVertical: 2,
   },
   proofId: {
     fontSize: 12,
@@ -1008,10 +1221,21 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     flex: 1,
   },
-  resetButton: {
+  qrActionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginHorizontal: 15,
     marginTop: 15,
+    gap: 10,
+  },
+  actionButton: {
+    flex: 1,
+  },
+  resetButton: {
     borderColor: '#6C63FF',
+  },
+  doneButton: {
+    backgroundColor: '#4CAF50',
   },
   // Modal styles
   modalContainer: {
