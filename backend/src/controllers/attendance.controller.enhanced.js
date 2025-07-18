@@ -1,10 +1,11 @@
 // backend/src/controllers/attendance.controller.enhanced.js
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import Attendance from '../models/Attendance.js';
 import Scholar from '../models/Scholar.js';
 import Organization from '../models/Organization.js';
 import BiometricCommitment from '../models/BiometricCommitment.js';
-import enhancedZKPService from '../services/zkp.service.enhanced.js';
+import zkpService from '../services/zkp.service.js';
 import biometricVerificationService from '../services/biometric.verification.service.js';
 import QRCode from 'qrcode';
 import logger from '../utils/logger.js';
@@ -62,12 +63,12 @@ export const generateAttendanceProof = async (req, res) => {
     }
 
     // Check if biometric is enrolled
-    const biometricRecord = await BiometricCommitment.findOne({ 
+    const biometricCommitment = await BiometricCommitment.findOne({ 
       userId: scholar._id,
       isActive: true
     });
 
-    if (!biometricRecord) {
+    if (!biometricCommitment) {
       logger.warn(`Scholar ${scholarId} attempted attendance without biometric enrollment`);
       return res.status(400).json({
         success: false,
@@ -77,8 +78,8 @@ export const generateAttendanceProof = async (req, res) => {
     }
 
     // Check if at least ONE biometric is enrolled
-    const hasFingerprint = biometricRecord.commitments?.fingerprint?.hash ? true : false;
-    const hasFace = biometricRecord.commitments?.face?.hash ? true : false;
+    const hasFingerprint = biometricCommitment.commitments?.fingerprint?.commitment ? true : false;
+    const hasFace = biometricCommitment.commitments?.face?.commitment ? true : false;
 
     if (!hasFingerprint && !hasFace) {
       logger.warn(`Scholar ${scholarId} has no valid biometric enrollment`);
@@ -165,111 +166,150 @@ export const generateAttendanceProof = async (req, res) => {
       }
     }
 
-    // Generate ZKP proof
-    const timestamp = Date.now();
-    const zkProof = await enhancedZKPService.generateAttendanceProof(
-      scholarId,
-      `${requestedBiometricType}_verified_${timestamp}`,
-      timestamp
-    );
-
-    // Generate QR data
-    const qrData = await enhancedZKPService.generateAttendanceQR({
-      proofId: zkProof.proofId,
-      scholarId: scholar.scholarId,
-      organizationId,
-      timestamp,
-      attendanceType,
-      locationValid: true
-    });
-
-    // Generate QR code image
-    const qrCodeImage = await QRCode.toDataURL(qrData.qrData, {
-      width: 300,
-      margin: 2,
-      color: {
-        dark: '#000000',
-        light: '#FFFFFF'
-      }
-    });
-
-    // Create attendance data object matching the schema
-    logger.info(`Creating attendance record with attendanceType: ${attendanceType}`);
-    
-    const attendanceData = {
-      scholarId: scholar._id,
-      organizationId,
-      date: new Date(),
-      attendanceType: attendanceType, // CRITICAL: This field is required by the schema
-      status: 'present', // Set as present immediately
-      proofData: {
-        zkProof: {
-          proofId: zkProof.proofId,
-          proof: zkProof.proof || 'simulated_proof', // Required field
-          publicInputs: zkProof.publicInputs || {
-            commitmentHash: zkProof.commitmentHash,
-            timestamp: zkProof.timestamp,
-            nullifier: zkProof.nullifier
-          },
-          verificationKey: zkProof.verificationKey,
-          protocol: zkProof.protocol || 'groth16'
-        },
-        location: location ? {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          accuracy: location.accuracy || 0,
-          timestamp: new Date()
-        } : null,
-        verificationMethod: 'biometric_zkp'
-      },
-      deviceInfo: req.body.deviceInfo || {
-        deviceId: 'unknown',
-        platform: 'unknown',
-        appVersion: 'unknown'
-      },
-      metadata: {
-        checkInTime: attendanceType === 'checkIn' ? new Date() : undefined,
-        checkOutTime: attendanceType === 'checkOut' ? new Date() : undefined,
-        isLate: false,
-        biometricVerified: true,
-        locationVerified: true,
-        remarks: `${attendanceType} via biometric verification`,
-        qrGenerated: true,
-        biometricType: requestedBiometricType
-      }
-    };
-
-    logger.info(`Attendance data prepared: ${JSON.stringify(attendanceData, null, 2)}`);
-
-    // Create and save attendance record
-    const attendance = new Attendance(attendanceData);
-    
-    // Validate before saving
-    const validationError = attendance.validateSync();
-    if (validationError) {
-      logger.error('Attendance validation error:', validationError);
+    // Get the biometric commitment data
+    const biometricTypeData = biometricCommitment.commitments[requestedBiometricType];
+    if (!biometricTypeData) {
       return res.status(400).json({
         success: false,
-        error: 'Validation failed',
-        details: validationError.message
+        error: `No ${requestedBiometricType} enrollment found`
       });
     }
 
-    await attendance.save();
-    logger.info(`Attendance record saved successfully with ID: ${attendance._id}`);
+    // Ensure we have the encrypted salt
+    let encryptedSalt = biometricTypeData.encryptedSalt || biometricCommitment.encryptedSalt;
+    
+    if (!encryptedSalt) {
+      logger.error('No encrypted salt found for scholar:', scholarId);
+      
+      // For backward compatibility, generate a new salt if missing
+      // This handles enrollments done before real ZKP was implemented
+      const tempSalt = crypto.randomBytes(32);
+      encryptedSalt = await zkpService.encryptSalt(tempSalt, scholarId);
+      
+      // Update the biometric commitment with the salt
+      biometricTypeData.encryptedSalt = encryptedSalt;
+      biometricCommitment.markModified('commitments');
+      await biometricCommitment.save();
+      
+      logger.warn('Generated temporary encrypted salt for scholar:', scholarId);
+    }
 
-    // Return response with QR data
-    res.json({
-      success: true,
-      message: 'Attendance proof generated successfully',
-      qrData: qrData.qrData,
-      qrCode: qrCodeImage,
-      proofId: zkProof.proofId,
-      expiresAt: qrData.expiresAt,
-      pendingAttendanceId: attendance._id,
-      attendanceType,
-      locationValid: true
-    });
+    // Generate ZKP proof using real ZKP service
+    const timestamp = Date.now();
+    
+    try {
+      // Generate attendance proof with real ZKP
+      const attendanceProof = await zkpService.generateAttendanceProof(
+        scholarId,
+        biometricData,
+        biometricTypeData,
+        encryptedSalt,
+        {
+          location: location,
+          timestamp: timestamp,
+          organizationId: scholar.organizationId.toString()
+        }
+      );
+
+      // Generate QR data
+      const qrData = await zkpService.generateAttendanceQR({
+        proofId: attendanceProof.proofId,
+        scholarId: scholar.scholarId,
+        organizationId,
+        timestamp,
+        verificationKey: attendanceProof.verificationKey
+      });
+
+      // Generate QR code image
+      const qrCodeImage = await QRCode.toDataURL(qrData.qrData, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+
+      // Create attendance data object matching the schema
+      logger.info(`Creating attendance record with attendanceType: ${attendanceType}`);
+      
+      const attendanceData = {
+        scholarId: scholar._id,
+        organizationId,
+        date: new Date(),
+        attendanceType: attendanceType,
+        status: 'present',
+        proofData: {
+          zkProof: {
+            proofId: attendanceProof.proofId,
+            proof: attendanceProof.proof,
+            publicInputs: attendanceProof.publicInputs,
+            verificationKey: attendanceProof.verificationKey,
+            protocol: attendanceProof.protocol || 'groth16'
+          },
+          location: location ? {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            accuracy: location.accuracy || 0,
+            timestamp: new Date()
+          } : null,
+          verificationMethod: 'biometric_zkp'
+        },
+        deviceInfo: req.body.deviceInfo || {
+          deviceId: 'unknown',
+          platform: 'unknown',
+          appVersion: 'unknown'
+        },
+        metadata: {
+          checkInTime: attendanceType === 'checkIn' ? new Date() : undefined,
+          checkOutTime: attendanceType === 'checkOut' ? new Date() : undefined,
+          isLate: false,
+          biometricVerified: true,
+          locationVerified: true,
+          remarks: `${attendanceType} via biometric verification with ${zkpService.mode} ZKP`,
+          qrGenerated: true,
+          biometricType: requestedBiometricType,
+          zkpMode: zkpService.mode
+        }
+      };
+
+      logger.info(`Attendance data prepared with ZKP mode: ${zkpService.mode}`);
+
+      // Create and save attendance record
+      const attendance = new Attendance(attendanceData);
+      
+      // Validate before saving
+      const validationError = attendance.validateSync();
+      if (validationError) {
+        logger.error('Attendance validation error:', validationError);
+        return res.status(400).json({
+          success: false,
+          error: 'Validation failed',
+          details: validationError.message
+        });
+      }
+
+      await attendance.save();
+      logger.info(`Attendance record saved successfully with ID: ${attendance._id}`);
+
+      // Return response with QR data
+      res.json({
+        success: true,
+        message: 'Attendance proof generated successfully',
+        qrData: qrData.qrData,
+        qrCode: qrCodeImage,
+        proofId: attendanceProof.proofId,
+        expiresAt: qrData.expiresAt,
+        pendingAttendanceId: attendance._id,
+        attendanceType,
+        locationValid: true,
+        zkpMode: zkpService.mode
+      });
+
+    } catch (zkpError) {
+      logger.error('Error generating attendance proof:', zkpError);
+      throw zkpError;
+    }
 
   } catch (error) {
     logger.error('Generate attendance proof error:', error);
@@ -362,7 +402,8 @@ export const getAttendanceHistory = async (req, res) => {
         organization: record.organizationId?.name,
         proofId: record.proofData?.zkProof?.proofId,
         locationValid: record.metadata?.locationVerified,
-        biometricVerified: record.metadata?.biometricVerified
+        biometricVerified: record.metadata?.biometricVerified,
+        zkpMode: record.metadata?.zkpMode
       })),
       pagination: {
         page: parseInt(page),
@@ -408,7 +449,7 @@ export const verifyQRAttendance = async (req, res) => {
 
     // Find the attendance record by proof ID
     const attendance = await Attendance.findOne({
-      'proofData.zkProof.proofId': decodedData.id
+      'proofData.zkProof.proofId': decodedData.p || decodedData.id || decodedData.proofId
     }).populate('scholarId', 'scholarId personalInfo.name');
 
     if (!attendance) {
@@ -436,6 +477,26 @@ export const verifyQRAttendance = async (req, res) => {
       });
     }
 
+    // Verify the ZKP proof if in production mode
+    if (zkpService.mode === 'production' && attendance.proofData?.zkProof) {
+      try {
+        const isValid = await zkpService.verifyAttendanceProof(
+          attendance.proofData.zkProof,
+          attendance.proofData.zkProof.publicInputs.commitment
+        );
+
+        if (!isValid) {
+          logger.error('ZKP proof verification failed for attendance:', attendance._id);
+          return res.status(403).json({
+            success: false,
+            error: 'Proof verification failed'
+          });
+        }
+      } catch (verifyError) {
+        logger.error('Error verifying ZKP proof:', verifyError);
+      }
+    }
+
     // Update attendance status to present
     attendance.status = 'present';
     attendance.metadata.verifiedAt = new Date();
@@ -458,7 +519,8 @@ export const verifyQRAttendance = async (req, res) => {
         type: attendance.attendanceType,
         markedAt: attendance.date,
         locationValid: attendance.metadata?.locationVerified,
-        biometricVerified: attendance.metadata?.biometricVerified
+        biometricVerified: attendance.metadata?.biometricVerified,
+        zkpMode: attendance.metadata?.zkpMode
       }
     });
 

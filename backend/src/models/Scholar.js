@@ -140,6 +140,15 @@ const scholarSchema = new mongoose.Schema({
       }
     }
   },
+  // Add to biometricEnrollment field
+  zkpData: {
+    commitment: String,
+    nullifier: { type: String, unique: true },
+    encryptedSalt: String,
+    algorithm: String,
+    zkpVersion: String,
+    enrolledAt: Date
+  },
   isBiometricEnrolled: {
     type: Boolean,
     default: false
@@ -175,7 +184,7 @@ scholarSchema.methods.comparePassword = async function (candidatePassword) {
 };
 
 // Method to check biometric enrollment status
-scholarSchema.methods.checkBiometricEnrollment = function() {
+scholarSchema.methods.checkBiometricEnrollment = function () {
   return {
     isEnrolled: this.isBiometricEnrolled,
     hasFingerprint: this.biometricEnrollment?.fingerprint?.isActive || false,

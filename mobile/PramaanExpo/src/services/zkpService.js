@@ -1,5 +1,7 @@
 // src/services/zkpService.js
 import * as Crypto from 'expo-crypto';
+import SimulationZKPService from './zkp/zkpService.simulation.js';
+import ProductionZKPService from './zkp/zkpService.production.js';
 
 class ZKPService {
   /**
