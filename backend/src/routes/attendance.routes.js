@@ -2,32 +2,17 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.middleware.js';
 import { authorizeRoles } from '../middleware/role.middleware.js';
-// Import from the existing controller
-import {
-  markAttendance,
-  getTodayAttendance,
-  getAttendanceHistory,
-  verifyAttendanceProof,
-  getAttendanceStats
-} from '../controllers/attendanceController.js';
-// Import enhanced controller with all its functions
+// Import enhanced controller
 import enhancedAttendanceController from '../controllers/attendance.controller.enhanced.js';
 
 const router = express.Router();
 
-// Keep existing routes working
-router.post('/mark', authenticateToken, authorizeRoles(['scholar']), markAttendance);
-router.get('/today', authenticateToken, authorizeRoles(['scholar']), getTodayAttendance);
-router.get('/history', authenticateToken, authorizeRoles(['scholar']), getAttendanceHistory);
-router.get('/stats', authenticateToken, authorizeRoles(['scholar']), getAttendanceStats);
-
-// Add new enhanced routes
+// Enhanced routes for attendance operations
+// Note: The enhanced controller uses generateAttendanceProof instead of mark
 router.post('/generate-proof', authenticateToken, authorizeRoles(['scholar']), enhancedAttendanceController.generateAttendanceProof);
-router.get('/today-status', authenticateToken, authorizeRoles(['scholar']), enhancedAttendanceController.getTodayStatus);
+router.get('/today-status', authenticateToken, enhancedAttendanceController.getTodayStatus);
+router.get('/history', authenticateToken, enhancedAttendanceController.getAttendanceHistory);
 router.post('/verify-qr', authenticateToken, authorizeRoles(['admin']), enhancedAttendanceController.verifyQRAttendance);
-
-// Public verification route - using the original controller
-router.get('/verify/:proofId', verifyAttendanceProof);
 
 // Admin routes
 router.get('/organization/:organizationId', 

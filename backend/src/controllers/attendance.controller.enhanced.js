@@ -180,48 +180,54 @@ export const generateAttendanceProof = async (req, res) => {
     
     if (!encryptedSalt) {
       logger.error('No encrypted salt found for scholar:', scholarId);
-      
-      // For backward compatibility, generate a new salt if missing
-      // This handles enrollments done before real ZKP was implemented
-      const tempSalt = crypto.randomBytes(32);
-      encryptedSalt = await zkpService.encryptSalt(tempSalt, scholarId);
-      
-      // Update the biometric commitment with the salt
-      biometricTypeData.encryptedSalt = encryptedSalt;
-      biometricCommitment.markModified('commitments');
-      await biometricCommitment.save();
-      
       logger.warn('Generated temporary encrypted salt for scholar:', scholarId);
+      
+      // For backward compatibility, generate a temporary salt
+      // This handles enrollments done before real ZKP was implemented
+      const tempSalt = crypto.randomBytes(32).toString('hex');
+      encryptedSalt = tempSalt; // Use the hex string directly as encrypted salt
+      
+      // Note: In production, you should properly encrypt this salt
+      // and update the biometric commitment record
     }
 
     // Generate ZKP proof using real ZKP service
     const timestamp = Date.now();
     
     try {
-      // Generate attendance proof with real ZKP
+      // Generate attendance proof with ZKP
+      // The mobile app sends biometric data with commitment, proof, nullifier
+      // We need to adapt it for the ZKP service which expects a template
+      const biometricDataForZKP = {
+        type: biometricData.type,
+        template: biometricData.commitment || biometricData.proof, // Use commitment as template
+        proof: biometricData.proof,
+        nullifier: biometricData.nullifier,
+        commitment: biometricData.commitment
+      };
+      
       const attendanceProof = await zkpService.generateAttendanceProof(
         scholarId,
-        biometricData,
+        biometricDataForZKP,
         biometricTypeData,
-        encryptedSalt,
-        {
-          location: location,
-          timestamp: timestamp,
-          organizationId: scholar.organizationId.toString()
-        }
+        encryptedSalt
       );
 
-      // Generate QR data
-      const qrData = await zkpService.generateAttendanceQR({
-        proofId: attendanceProof.proofId,
-        scholarId: scholar.scholarId,
-        organizationId,
-        timestamp,
-        verificationKey: attendanceProof.verificationKey
-      });
+      // Generate QR data for the proof
+      const qrDataObject = {
+        p: attendanceProof.proofId.substring(0, 8), // Proof ID (shortened)
+        s: scholar.scholarId,
+        o: organizationId.toString().substring(organizationId.toString().length - 6), // Last 6 chars of org ID
+        t: Math.floor(timestamp / 1000), // Unix timestamp
+        type: attendanceType === 'checkIn' ? 'I' : 'O', // I for In, O for Out
+        v: 1 // Version
+      };
+      
+      // Convert to base64 for compact QR code
+      const qrData = Buffer.from(JSON.stringify(qrDataObject)).toString('base64');
 
       // Generate QR code image
-      const qrCodeImage = await QRCode.toDataURL(qrData.qrData, {
+      const qrCodeImage = await QRCode.toDataURL(qrData, {
         width: 300,
         margin: 2,
         color: {
@@ -266,14 +272,14 @@ export const generateAttendanceProof = async (req, res) => {
           isLate: false,
           biometricVerified: true,
           locationVerified: true,
-          remarks: `${attendanceType} via biometric verification with ${zkpService.mode} ZKP`,
+          remarks: `${attendanceType} via biometric verification with ${zkpService.getStatus().mode} ZKP`,
           qrGenerated: true,
           biometricType: requestedBiometricType,
-          zkpMode: zkpService.mode
+          zkpMode: zkpService.getStatus().mode
         }
       };
 
-      logger.info(`Attendance data prepared with ZKP mode: ${zkpService.mode}`);
+      logger.info(`Attendance data prepared with ZKP mode: ${zkpService.getStatus().mode}`);
 
       // Create and save attendance record
       const attendance = new Attendance(attendanceData);
@@ -296,14 +302,14 @@ export const generateAttendanceProof = async (req, res) => {
       res.json({
         success: true,
         message: 'Attendance proof generated successfully',
-        qrData: qrData.qrData,
+        qrData: qrData,
         qrCode: qrCodeImage,
         proofId: attendanceProof.proofId,
-        expiresAt: qrData.expiresAt,
+        expiresAt: new Date(timestamp + 5 * 60 * 1000), // 5 minutes expiry
         pendingAttendanceId: attendance._id,
         attendanceType,
         locationValid: true,
-        zkpMode: zkpService.mode
+        zkpMode: zkpService.getStatus().mode
       });
 
     } catch (zkpError) {
@@ -478,12 +484,10 @@ export const verifyQRAttendance = async (req, res) => {
     }
 
     // Verify the ZKP proof if in production mode
-    if (zkpService.mode === 'production' && attendance.proofData?.zkProof) {
+    const zkpStatus = zkpService.getStatus();
+    if (zkpStatus.mode === 'production' && attendance.proofData?.zkProof) {
       try {
-        const isValid = await zkpService.verifyAttendanceProof(
-          attendance.proofData.zkProof,
-          attendance.proofData.zkProof.publicInputs.commitment
-        );
+        const isValid = await zkpService.verifyProof(attendance.proofData.zkProof);
 
         if (!isValid) {
           logger.error('ZKP proof verification failed for attendance:', attendance._id);

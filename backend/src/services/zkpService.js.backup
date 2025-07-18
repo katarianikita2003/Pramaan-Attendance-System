@@ -1,0 +1,280 @@
+﻿// backend/src/services/zkpService.js
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import * as snarkjs from 'snarkjs';
+import { buildPoseidon } from 'circomlibjs';
+import crypto from 'crypto';
+import logger from '../utils/logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+class ZKPService {
+  constructor() {
+    this.poseidon = null;
+    this.snarkjs = null;
+    this.verificationKey = null;
+    this.isInitialized = false;
+    this.mode = 'simulation'; // Default to simulation
+    this.hasRealCircuits = false;
+  }
+
+  async initialize() {
+    try {
+      logger.info('Initializing ZKP Service...');
+
+      // Initialize Poseidon hash function
+      this.poseidon = await buildPoseidon();
+      logger.info('Poseidon hash function initialized');
+
+      // Load snarkjs
+      this.snarkjs = snarkjs;
+      logger.info('snarkjs loaded successfully');
+
+      // Check for real ZKP files
+      const circuitPath = path.join(process.cwd(), 'zkp-circuits');
+      const wasmPath = path.join(circuitPath, 'biometric.wasm');
+      const zkeyPath = path.join(circuitPath, 'biometric_final.zkey');
+      const vKeyPath = path.join(circuitPath, 'verification_key.json');
+
+      this.hasRealCircuits = fs.existsSync(wasmPath) && 
+                           fs.existsSync(zkeyPath) && 
+                           fs.existsSync(vKeyPath);
+
+      // IMPORTANT: Always respect the environment variable
+      const envMode = process.env.ZKP_MODE || 'simulation';
+      
+      if (envMode === 'production' && this.hasRealCircuits) {
+        logger.info('Real ZKP files found AND production mode requested');
+        this.mode = 'production';
+        // Load verification key
+        const vKeyData = fs.readFileSync(vKeyPath, 'utf8');
+        this.verificationKey = JSON.parse(vKeyData);
+      } else {
+        // Force simulation mode regardless of file existence
+        logger.info(`Running in simulation mode (ZKP_MODE=${envMode})`);
+        this.mode = 'simulation';
+        
+        // Create mock verification key
+        this.verificationKey = {
+          protocol: "groth16",
+          curve: "bn128",
+          nPublic: 2
+        };
+      }
+
+      this.isInitialized = true;
+      logger.info(`ZKP Service initialized in ${this.mode} mode`);
+      
+    } catch (error) {
+      logger.error('Failed to initialize ZKP service:', error);
+      // Fallback to simulation mode on any error
+      this.mode = 'simulation';
+      this.isInitialized = true;
+      logger.info('ZKP Service initialized in simulation mode (fallback)');
+    }
+  }
+
+  // Get ZKP status
+  getStatus() {
+    return {
+      initialized: this.isInitialized,
+      mode: this.mode,
+      hasSnarkjs: !!this.snarkjs,
+      hasVerificationKey: !!this.verificationKey,
+      hasRealCircuits: this.hasRealCircuits,
+      circuitPath: path.join(process.cwd(), 'zkp-circuits'),
+      features: {
+        biometricCommitment: true,
+        attendanceProof: true,
+        proofVerification: true,
+        realTimeProofs: this.mode === 'production'
+      }
+    };
+  }
+
+  // Convert BigInt to string for JSON serialization
+  bigIntToString(obj) {
+    return JSON.parse(JSON.stringify(obj, (key, value) =>
+      typeof value === 'bigint' ? value.toString() : value
+    ));
+  }
+
+  // Generate biometric commitment
+  async generateBiometricCommitment(biometricData, salt) {
+    if (!this.isInitialized) await this.initialize();
+
+    try {
+      const biometricHash = this.poseidon.F.toString(
+        this.poseidon([BigInt(biometricData)])
+      );
+      
+      const commitment = this.poseidon.F.toString(
+        this.poseidon([BigInt(biometricHash), BigInt(salt)])
+      );
+
+      return this.bigIntToString({ commitment, biometricHash });
+    } catch (error) {
+      logger.error('Error generating biometric commitment:', error);
+      throw error;
+    }
+  }
+
+  // Generate attendance proof
+  async generateAttendanceProof(scholarId, biometricData, timestamp, locationValid) {
+    if (!this.isInitialized) await this.initialize();
+
+    try {
+      logger.info(`Generating ${this.mode === 'production' ? 'real' : 'simulated'} attendance proof for scholar ${scholarId}`);
+
+      if (this.mode === 'production') {
+        // Real ZKP proof generation
+        logger.info('Generating real ZKP proof...');
+        
+        const circuitPath = path.join(process.cwd(), 'zkp-circuits');
+        const wasmPath = path.join(circuitPath, 'biometric.wasm');
+        const zkeyPath = path.join(circuitPath, 'biometric_final.zkey');
+
+        // Read the WASM file
+        const wasmBuffer = fs.readFileSync(wasmPath);
+        
+        // Check if it's a mock file
+        if (wasmBuffer.toString().startsWith('mock')) {
+          logger.warn('Mock WASM file detected, falling back to simulation');
+          return this.generateSimulatedProof(scholarId, biometricData, timestamp, locationValid);
+        }
+
+        // Generate witness
+        const input = {
+          biometricHash: BigInt(biometricData.proof || '0'),
+          commitment: BigInt(biometricData.commitment || '0'),
+          nullifier: BigInt(biometricData.nullifier || '0'),
+          salt: BigInt(crypto.randomBytes(32).toString('hex'), 16),
+          timestamp: BigInt(timestamp)
+        };
+
+        logger.info('Circuit inputs prepared:', this.bigIntToString(input));
+
+        // Generate the proof
+        const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+          input,
+          wasmPath,
+          zkeyPath
+        );
+
+        logger.info('Real ZKP proof generated successfully');
+
+        return {
+          proof: JSON.stringify(proof),
+          publicInputs: {
+            commitment: publicSignals[0],
+            nullifier: publicSignals[1],
+            timestamp: timestamp,
+            scholarId: scholarId,
+            locationValid: locationValid
+          },
+          proofId: crypto.randomBytes(16).toString('hex')
+        };
+
+      } else {
+        // Simulation mode
+        return this.generateSimulatedProof(scholarId, biometricData, timestamp, locationValid);
+      }
+    } catch (error) {
+      logger.error('Real proof generation failed:', error);
+      // Fallback to simulation on any error
+      return this.generateSimulatedProof(scholarId, biometricData, timestamp, locationValid);
+    }
+  }
+
+  // Generate simulated proof
+  generateSimulatedProof(scholarId, biometricData, timestamp, locationValid) {
+    logger.info('Generating simulated attendance proof');
+    
+    const proof = {
+      pi_a: [
+        crypto.randomBytes(32).toString('hex'),
+        crypto.randomBytes(32).toString('hex'),
+        "1"
+      ],
+      pi_b: [[
+        crypto.randomBytes(32).toString('hex'),
+        crypto.randomBytes(32).toString('hex')
+      ], [
+        crypto.randomBytes(32).toString('hex'),
+        crypto.randomBytes(32).toString('hex')
+      ], ["1", "0"]],
+      pi_c: [
+        crypto.randomBytes(32).toString('hex'),
+        crypto.randomBytes(32).toString('hex'),
+        "1"
+      ],
+      protocol: "groth16",
+      curve: "bn128"
+    };
+
+    return {
+      proof: JSON.stringify(proof),
+      publicInputs: {
+        commitment: biometricData.commitment || crypto.randomBytes(32).toString('hex'),
+        nullifier: biometricData.nullifier || crypto.randomBytes(32).toString('hex'),
+        timestamp: timestamp,
+        scholarId: scholarId,
+        locationValid: locationValid
+      },
+      proofId: crypto.randomBytes(16).toString('hex')
+    };
+  }
+
+  // Verify attendance proof
+  async verifyAttendanceProof(proof, publicInputs) {
+    if (!this.isInitialized) await this.initialize();
+
+    try {
+      if (this.mode === 'production' && this.verificationKey) {
+        // Real verification
+        const vKey = this.verificationKey;
+        const proofData = typeof proof === 'string' ? JSON.parse(proof) : proof;
+        
+        const isValid = await snarkjs.groth16.verify(
+          vKey,
+          [publicInputs.commitment, publicInputs.nullifier],
+          proofData
+        );
+
+        return isValid;
+      } else {
+        // Simulation verification - just check structure
+        const proofData = typeof proof === 'string' ? JSON.parse(proof) : proof;
+        return !!(
+          proofData.pi_a && 
+          proofData.pi_b && 
+          proofData.pi_c &&
+          publicInputs.commitment &&
+          publicInputs.nullifier
+        );
+      }
+    } catch (error) {
+      logger.error('Error verifying proof:', error);
+      return false;
+    }
+  }
+
+  // Get mode
+  getMode() {
+    return this.mode;
+  }
+
+  // Check if initialized
+  isReady() {
+    return this.isInitialized;
+  }
+}
+
+// Create singleton instance
+const zkpService = new ZKPService();
+
+// Export both the class and the instance
+export { ZKPService, zkpService };
+export default zkpService;
