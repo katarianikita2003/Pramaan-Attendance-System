@@ -1,0 +1,15 @@
+{
+  "name": "pramaan-zkp-setup",
+  "version": "1.0.0",
+  "description": "ZKP circuit setup for Pramaan",
+  "scripts": {
+    "setup-ceremony": "node setup-ceremony.js",
+    "generate-keys": "node generate-keys.js",
+    "compile-circuits": "circom circuits/biometric.circom --r1cs --wasm --sym -o build"
+  },
+  "dependencies": {
+    "circom": "^0.5.46",
+    "snarkjs": "^0.7.3",
+    "circomlibjs": "^0.1.7"
+  }
+}
